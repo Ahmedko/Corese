@@ -157,14 +157,14 @@ public class Walker extends Interpreter {
         }
     }
 
-    Object getResult(Environment env, Producer p) {
+    public IDatatype getResult(Environment env, Producer p) {
         if (isError) {           
             return null;
         }
         return getResult(getExp(), env, p);
     }
         
-    Object getResult(Expr exp, Environment env, Producer p){
+    IDatatype getResult(Expr exp, Environment env, Producer p){
 
         switch (exp.oper()) {
 
@@ -187,7 +187,7 @@ public class Walker extends Interpreter {
                 }
 
                 try {
-                    Object dt = dtres.div(DatatypeMap.newInstance(num));
+                    IDatatype dt = dtres.div(DatatypeMap.newInstance(num));
                     return dt;
                 } catch (java.lang.ArithmeticException e) {
                     return null;
@@ -195,7 +195,7 @@ public class Walker extends Interpreter {
 
 
             case COUNT:
-                return proxy.getValue(num);
+                return (IDatatype) proxy.getValue(num);
 
             case GROUPCONCAT:
             case STL_GROUPCONCAT: 
@@ -214,9 +214,9 @@ public class Walker extends Interpreter {
                 // aggregate(?x, xt:mediane) ->
                 // aggregate(?x, xt:mediane(?list))
                 IDatatype dt = DatatypeMap.createList(list);
-                if (exp.arity() == 2){
-                    return (IDatatype) eval.getProxy().let(exp.getExp(1), env, p, dt);
-                }                               
+                if (exp.arity() == 2) {
+                    return (IDatatype) eval.eval(exp.getExp(1).getLabel(), env, p, dt);                    
+                }                        
                 return dt;
                 
             case STL_AGGREGATE: 
@@ -244,6 +244,13 @@ public class Walker extends Interpreter {
             return b;
         }
         return true;
+    }
+          
+    void eval(Expr function, Environment env, Producer p, IDatatype dt) {
+        Expr var = function.getFunction().getExp(0);
+        env.set(function, var, dt);
+        eval(function.getBody().getFilter(), env, p);
+        env.unset(function, var, dt);
     }
     
     /**
@@ -293,10 +300,11 @@ public class Walker extends Interpreter {
             switch (f.getExp().oper()) {
                 
                 case STL_AGGREGATE:
-                    Expr var = getDefinition().getFunction().getExp(0);
-                    env.set(exp, var, dt);
-                    eval(getDefinition().getBody().getFilter(), env, p);
-                    env.unset(exp, var);
+                    eval(getDefinition(), env, p, dt);
+//                    Expr var = getDefinition().getFunction().getExp(0);
+//                    env.set(exp, var, dt);
+//                    eval(getDefinition().getBody().getFilter(), env, p);
+//                    env.unset(exp, var);
                     break;
 
                 case MIN:

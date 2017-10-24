@@ -1,5 +1,6 @@
 package fr.inria.edelweiss.kgraph.query;
 
+import fr.inria.acacia.corese.api.ComputerProxy;
 import fr.inria.acacia.corese.api.IDatatype;
 import fr.inria.acacia.corese.cg.datatype.DatatypeMap;
 import fr.inria.acacia.corese.triple.parser.ASTQuery;
@@ -35,7 +36,7 @@ import org.apache.logging.log4j.LogManager;
  * @author Olivier Corby, Wimmics INRIA I3S, 2015
  *
  */
-public class PluginTransform implements ExprType {
+public class PluginTransform implements ComputerProxy, ExprType {
     static Logger logger = LogManager.getLogger(PluginTransform.class);
     private static final String FORMAT_LIB = "/webapp/data/format/";
 
@@ -51,7 +52,8 @@ public class PluginTransform implements ExprType {
         plugin = p;
     }
 
-    public Object function(Expr exp, Environment env, Producer p) {
+    @Override
+    public IDatatype function(Expr exp, Environment env, Producer p) {
 
         switch (exp.oper()) {
             
@@ -99,7 +101,8 @@ public class PluginTransform implements ExprType {
         return null;
     }
 
-    public Object function(Expr exp, Environment env, Producer p, IDatatype dt) {
+    @Override
+    public IDatatype function(Expr exp, Environment env, Producer p, IDatatype dt) {
 
         switch (exp.oper()) {
 
@@ -184,7 +187,8 @@ public class PluginTransform implements ExprType {
     }
     
     
-        public Object function(Expr exp, Environment env, Producer p, IDatatype dt1, IDatatype dt2) {
+    @Override
+        public IDatatype function(Expr exp, Environment env, Producer p, IDatatype dt1, IDatatype dt2) {
             switch(exp.oper()){
                 
             case APPLY_TEMPLATES:
@@ -245,8 +249,8 @@ public class PluginTransform implements ExprType {
     
     
     
-    public Object eval(Expr exp, Environment env, Producer p, Object[] args) {
-        IDatatype[] param = (IDatatype[]) args;
+    @Override
+    public IDatatype eval(Expr exp, Environment env, Producer p, IDatatype[] param) {
         switch (exp.oper()){
             
            case STL_PROCESS:
@@ -359,57 +363,19 @@ public class PluginTransform implements ExprType {
         QueryLoad ql = QueryLoad.create();
         return ql.readWE(stream);
     }
+              
     
-    
-          
-    IDatatype format(IDatatype dt){
-        return plugin.getValue(getFormat(dt));
-    }
-    
-    IDatatype format(IDatatype dt1, IDatatype dt2){
-        return plugin.getValue(String.format(getFormat(dt1), dt2.stringValue()));
-    }
-    
-    IDatatype format(IDatatype[] par){
+    IDatatype format(IDatatype... par){
         String f = getFormat(par[0]);
-        switch (par.length){
-            case 2: return plugin.getValue(String.format(f, par[1].stringValue()));
-            case 3: return plugin.getValue(String.format(f, par[1].stringValue(), par[2].stringValue()));
-            case 4: return plugin.getValue(String.format(f, par[1].stringValue(), par[2].stringValue(), par[3].stringValue()));
-            case 5: 
-                return plugin.getValue(String.format(f, par[1].stringValue(), par[2].stringValue(), 
-                        par[3].stringValue(), par[4].stringValue()));
-            case 6: 
-                return plugin.getValue(String.format(f, par[1].stringValue(), par[2].stringValue(), 
-                        par[3].stringValue(), par[4].stringValue(), par[5].stringValue()));                                   
-            case 7: 
-                return plugin.getValue(String.format(f, par[1].stringValue(), par[2].stringValue(), 
-                        par[3].stringValue(), par[4].stringValue(), par[5].stringValue(),
-                        par[6].stringValue()));                                   
-            case 8: 
-                return plugin.getValue(String.format(f, par[1].stringValue(), par[2].stringValue(), 
-                        par[3].stringValue(), par[4].stringValue(), par[5].stringValue(),
-                        par[6].stringValue(), par[7].stringValue())); 
-            case 9: 
-                return plugin.getValue(String.format(f, par[1].stringValue(), par[2].stringValue(), 
-                        par[3].stringValue(), par[4].stringValue(), par[5].stringValue(),
-                        par[6].stringValue(), par[7].stringValue(), par[8].stringValue()));
-
-            case 10: 
-                return plugin.getValue(String.format(f, par[1].stringValue(), par[2].stringValue(), 
-                        par[3].stringValue(), par[4].stringValue(), par[5].stringValue(),
-                        par[6].stringValue(), par[7].stringValue(), par[8].stringValue(), par[9].stringValue()));        
-            case 11: 
-                return plugin.getValue(String.format(f, par[1].stringValue(), par[2].stringValue(), 
-                        par[3].stringValue(), par[4].stringValue(), par[5].stringValue(),
-                        par[6].stringValue(), par[7].stringValue(), par[8].stringValue(), 
-                        par[9].stringValue(), par[10].stringValue())); 
-        
+        Object [] arr = new Object[par.length-1];
+        for (int i = 0; i<arr.length; i++) {
+            IDatatype dt = par[i+1];
+            arr[i] = dt.objectValue();                            
         }
-        return null;
+        String res = String.format(f, arr);
+        return plugin.getValue(res);
     }
-    
-
+     
     private IDatatype bool(Expr exp, Environment env, Producer p, IDatatype dt) {
         if (dt.stringValue().contains("false")) {
             return FALSE;
@@ -646,10 +612,10 @@ public class PluginTransform implements ExprType {
      * Transformer what is default behavior set st:process() to it's default
      * behavior the default behavior is st:turtle
      */
-    public Object processDef(Expr exp, Environment env, Producer p, IDatatype[] args) {
+    public IDatatype processDef(Expr exp, Environment env, Producer p, IDatatype[] args) {
         Extension ext = env.getQuery().getExtension();
         if (ext != null && ext.isDefined(exp)) {
-            return plugin.getEvaluator().eval(exp, env, p, args, ext);
+            return (IDatatype) plugin.getEvaluator().eval(exp, env, p, args, ext);
         }
 
         Transformer pp = getTransformer(env, p);
@@ -658,8 +624,8 @@ public class PluginTransform implements ExprType {
         // overload current st:process() oper code to default behaviour oper code
         // future executions of this st:process() will directly execute target default behavior
         exp.setOper(oper);
-        Object res = plugin.function(exp, env, p,  args[0]);
-        return res;
+        IDatatype res = plugin.function(exp, env, p,  args[0]);
+        return  res;
 
     }
   
@@ -983,7 +949,7 @@ public class PluginTransform implements ExprType {
         t.load(dt.getLabel());
     }
 
-    private Object getFocusNode(IDatatype dt, Environment env) {
+    private IDatatype getFocusNode(IDatatype dt, Environment env) {
         String name = Transformer.IN;
         if (dt != null) {
             name = dt.getLabel();
@@ -992,7 +958,27 @@ public class PluginTransform implements ExprType {
         if (node == null) {
             return null;
         }
-        return node.getValue();
+        return (IDatatype) node.getValue();
+    }
+
+    @Override
+    public ComputerProxy getComputerPlugin() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public ComputerProxy getComputerTransform() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public IDatatype concat(Expr exp, Environment env, Producer p) {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public IDatatype hash(Expr exp, IDatatype dt) {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
     }
      
 }

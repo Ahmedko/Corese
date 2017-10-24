@@ -20,7 +20,7 @@ import java.util.List;
  * @author Olivier Corby & Olivier Savoie & Virginie Bottollier
  */
 public interface IDatatype
-        extends ICoresePolymorphDatatype, Node, Entity, DatatypeValue, Comparable {
+        extends Iterable<IDatatype>, ICoresePolymorphDatatype, Node, Entity, DatatypeValue, Comparable {
     static final int VALUE  = -1;
     static final int RESULT = -2;
     // use case: cast
@@ -53,10 +53,28 @@ public interface IDatatype
     public static final String QUERY    = KGRAM + "Query";
     public static final String GRAPH    = KGRAM + "Graph";
     public static final String MAPPINGS = KGRAM + "Mappings";
-    public static final String LIST     = ExpType.DT + "list";
-    public static final String POINTER  = ExpType.DT + "pointer";
-    public static final String SYSTEM   = ExpType.DT + "system";
     
+    public static final String ENTITY_DATATYPE   = ExpType.DT + "entity";
+    public static final String RESOURCE_DATATYPE = ExpType.DT + "resource";
+    public static final String URI_DATATYPE      = ExpType.DT + "uri";
+    public static final String BNODE_DATATYPE    = ExpType.DT + "bnode";
+    public static final String LITERAL_DATATYPE  = ExpType.DT + "literal";
+    public static final String STANDARD_DATATYPE = ExpType.DT + "standard";
+    public static final String EXTENDED_DATATYPE = ExpType.DT + "extended";
+    
+    public static final String ITERATE_DATATYPE  = ExpType.DT + "iterate";   
+    public static final String LIST_DATATYPE     = ExpType.DT + "list";   
+    public static final String SYSTEM            = ExpType.DT + "system";
+    public static final String POINTER           = ExpType.DT + "pointer";
+    public static final String GRAPH_DATATYPE    = ExpType.DT + "graph";
+    public static final String TRIPLE_DATATYPE   = ExpType.DT + "triple";
+    public static final String MAPPINGS_DATATYPE = ExpType.DT + "mappings";
+    public static final String MAPPING_DATATYPE  = ExpType.DT + "mapping";
+    public static final String CONTEXT_DATATYPE  = ExpType.DT + "context";
+    public static final String NSM_DATATYPE      = ExpType.DT + "nsmanager";
+    public static final String METADATA_DATATYPE = ExpType.DT + "annotation";
+    public static final String EXPRESSION_DATATYPE = ExpType.DT + "expression";
+   
     /**
      * @return true if we have a blanknode
      */
@@ -76,6 +94,7 @@ public interface IDatatype
 
     List<IDatatype> getValues();
     List<IDatatype> getValueList();
+    IDatatype toList();
     
     Iterable getLoop();
 
@@ -110,12 +129,12 @@ public interface IDatatype
     /**
      * Cast a value
      *
-     * @param target the java type (ex: xsd:integer)
-     * @param javaType the CoreseDatatype that corresponds (ex: CoreseInteger)
+     * @param datatype ex: xsd:integer
      * @return the datatype casted
      */
-    IDatatype cast(IDatatype target, IDatatype javaType);
-    IDatatype cast(IDatatype target);
+    //IDatatype cast(IDatatype target, IDatatype javaType);
+    IDatatype cast(IDatatype datatype);
+    IDatatype cast(String datatype);
 
     /**
      * @return the lang as a datatype
@@ -140,6 +159,10 @@ public interface IDatatype
     void setObject(Object obj);
 
     Object getObject();
+    
+    String getContent();
+    
+    IDatatype display();
 
     /**
      * ************************************************************************

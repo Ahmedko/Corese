@@ -3,31 +3,33 @@ package fr.inria.acacia.corese.triple.parser;
 import fr.inria.acacia.corese.triple.api.ExpressionVisitor;
 import fr.inria.edelweiss.kgram.api.core.ExprType;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Visit filter/select/bind expressions
- * function, let, map: declare arguments as local variables, index
+ * function, let, map: declare arguments as local variables, 
+ * generate variable index
  *
  * @author Olivier Corby, Wimmics INRIA I3S, 2015
  *
  */
 public class ExpressionVisitorVariable implements ExpressionVisitor {
-
-    boolean let = false;
-    boolean define = false;
-    boolean trace = false;
-    int count = 0;
-    int clet = 0;
+  
+    private static Logger logger = LogManager.getLogger(ASTQuery.class);
+   
+    private boolean let = false;
+    private boolean functionDefinition = false;
+    private boolean trace = false;
+    private int nbVariable = 0;
     
-    List<Variable> list;
-    HashMap<String, Integer> map;
-    ASTQuery ast;
-    Function fun;
+    // stack of defined variables: function parameter/let/for
+    private List<Variable> list;
+    private ASTQuery ast;
+    private Function fun;
 
     ExpressionVisitorVariable() {
-        map = new HashMap<String, Integer>();
         list = new ArrayList<Variable>();
     }
     
@@ -35,34 +37,75 @@ public class ExpressionVisitorVariable implements ExpressionVisitor {
     ExpressionVisitorVariable(ASTQuery ast) {
         this();
         this.ast = ast;
-        init();
     }
     
     // function f(?x) { exp }
     ExpressionVisitorVariable(ASTQuery ast, Function fun) {
         this();
-        this.list = fun.getFunction().getFunVariables();
         this.ast = ast;
         this.fun = fun;
-        define = true;
-        init();
+        functionDefinition = true;
+        define(fun.getSignature().getFunVariables());
     }
-    
-    void init(){
-        //trace = ast.isDebug();
-        if (list != null){
-            declare();
-        }
-    }
-    
-    void declare(){
+       
+    /**
+     * Declare function parameters as local variables
+     */
+    void define(List<Variable> list){
         for (Variable var : list){
-            localize(var);
+            define(var);
         }
     }
     
+    /**
+     * Declare function parameter and let/for variable
+     */
+    void define(Variable var){
+        list.add(var);
+        localize(var);
+        var.setDeclaration(var);
+        var.setIndex(getNbVariable());
+        setNbVariable(getNbVariable() + 1);
+    }
     
+    void pop(Variable var){
+        list.remove(list.size() - 1);
+    }
+    
+    boolean reference(Variable var) {
+        Variable decl = getDefinition(var);
+        if (decl != null) {
+            var.setDeclaration(decl);
+            var.setIndex(decl.getIndex());
+            localize(var);
+            return true;
+        } 
+        return false;
+    }
+    
+    Variable getDefinition(Variable var) {
+        for (int i = list.size() - 1; i >= 0; i--) {
+            Variable v = list.get(i);
+            if (var.equals(v)) {
+                return v;
+            }
+        }
+        return null;
+    }
 
+
+    void localize(Variable var) {
+        var.localize();
+    }
+    
+    /**
+     * Visit starts here
+     */
+    @Override
+    public void start(Expression exp){
+        exp.visit(this);
+    }
+       
     @Override
     public void visit(Exp exp) {
     }
@@ -78,29 +121,10 @@ public class ExpressionVisitorVariable implements ExpressionVisitor {
             case ExprType.FOR:
                 loop(t);
                 break;
-                
-            case ExprType.FUNCTION:
-                define((Function) t);
-                break;
-                                           
-            case ExprType.MAP:
-            case ExprType.MAPLIST:                
-            case ExprType.MAPMERGE:                
-            case ExprType.MAPFIND:                
-            case ExprType.MAPFINDLIST:                
-            case ExprType.MAPEVERY:                
-            case ExprType.MAPANY: 
-                 map(t);
-                break;
-                
-            case ExprType.APPLY:                
-                map(t);
-                //apply(t);
-                break;
-                
-            case ExprType.AGGREGATE:
-                aggregate(t);
-                break;
+                                                                      
+//            case ExprType.AGGREGATE:
+//                aggregate(t);
+//                break;
                                
             case ExprType.EXIST:
                visitExist(t);
@@ -108,22 +132,73 @@ public class ExpressionVisitorVariable implements ExpressionVisitor {
                                
             default:
         
-            for (Expression e : t.getArgs()) {
-                e.visit(this);
-            }
+            process(t);
         }
     }
     
+    
+    void process(Term t) {
+        for (int i=0; i<t.getArgs().size(); i++) {
+            Expression e = t.getArg(i);
+            e.visit(this);
+            if (e.isVariable() && e.subtype() == ExprType.LOCAL){
+                VariableLocal var = new VariableLocal(e.getLabel());
+                var.setIndex(e.getIndex());
+                t.setArg(i, var);
+                t.setExp(i, var);
+            }
+        }
+    }
+            
+    
+    /**
+     * function xt:fun(?x) { exp }
+     * create a new Visitor to have own local variables index
+     */
+    @Override
+    public void visit(Function f) {
+        if (! f.isVisited()) {
+           f.setVisited(true);
+           function(f);
+        }
+    }
+      
+
+    @Override
+    public void visit(Variable v) {
+        variable(v);       
+    }
+
+    @Override
+    public void visit(Constant c) {
+    }
+        
+    void function(Function f) {
+        if (trace) {
+            System.out.println("**** Vis Fun: " + f);
+        }
+        
+        if (isFunctionDefinition()){
+            // f is lambda inside a function
+            if (fun.isPublic()){
+                // f is also public
+                f.setPublic(true);
+            }
+        }
+        
+        Expression body = f.getBody();
+        ExpressionVisitorVariable vis = new ExpressionVisitorVariable(ast, f);
+        vis.start(body);
+        f.setNbVariable(vis.getNbVariable());
+        ast.define(f);        
+    }
+    
     void visitExist(Term t) {
-        if (fun != null) {
+        if (isFunctionDefinition()) {
             // inside a function 
-
-            //if (fun.isExport()) {
-                // special case: export function contain exists {}
-                // will be evaluated with query that defines function
-                fun.setSystem(true);
-            //}
-
+            // special case: export function contain exists {}
+            // will be evaluated with query that defines function
+            fun.setSystem(true);
             if (t.isSystem() && fun.hasMetadata()) {
                 // let (?m = select where {}){}
                 Exp e = t.getExist().getBody().get(0).get(0);
@@ -134,201 +209,101 @@ public class ExpressionVisitorVariable implements ExpressionVisitor {
             }
         }
     }
-    
-
-    @Override
-    public void visit(Variable v) {
-        variable(v);       
-    }
-
-    @Override
-    public void visit(Constant c) {
-    }
-    
-    
-    int count(){
-        return count;
-    }
-    
-    
-    
-    
-    void variable(Variable v) {
-        if (isLocal(v)) {
-            localize(v);
-        } 
-        else if (define) {
-            v.undef();
+       
+    /**
+     * Visit variable in statement: declare it as local if it
+     * corresponds to a parameter/let/for variable
+     * Variable var refers to its declaration decl
+     */
+    void variable(Variable var) {
+        if (reference(var)){   
+            // ok
+        }       
+        else if (isFunctionDefinition()) {
+            ast.addError("Undefined variable: " + var + " in function: " + fun.getSignature().getName());
+            ast.addFail(true);
+            var.undef();
         }
     }
 
-    
-    
     /**
-     * function(xt:fun(?x) = exp)
-     * create a new Visitor to have own local variables index
-     */
-    void define(Function t){
-        if (trace) System.out.println("Vis Fun: " + t);
-        Expression body = t.getBody(); 
-        
-        ExpressionVisitorVariable vis = new ExpressionVisitorVariable(ast, t);
-        body.visit(vis);
-        
-        t.setPlace(vis.count());
-        ast.define(t); //fun);
-        if (trace) System.out.println("count: " + vis.count());
-    }
-    
-    /**
-     * @deprecated
-     * 
-     */
-    void export(Term t) {
-        for (Expression exp : t.getArgs()) {
-            if (exp.isTerm() && !exp.getArgs().isEmpty()) {
-                Expression fun = exp.getArg(0);
-                fun.setPublic(true);
-            }
-        }
-    }
-    
-    /**
-     * let (?x = e1, e2)
-     */
-    void let(Term t){
-        if (trace) System.out.println("Vis Let: " + t);
-            Variable var    = t.getVariable();
-            Expression exp  = t.getDefinition();           
-            Expression body = t.getBody();       
-
-            if (isLocal(var)){
-                ast.addError("Variable already defined: " + var);
-                ast.addFail(true);
-            }
-            else {
-                exp.visit(this);
-                localize(var);
-                list.add(var);
-                clet++;
-                body.visit(this);
-                clet--;
-                list.remove(list.size()-1);
-                remove(var);
-                if (! define && clet == 0){
-                    // top level let
-                    t.setPlace(count);
-                }
-            }        
-    }
-    
-    // for (?x in exp){ exp }
-    void loop(Term t) {
+     * let (var = exp) { body }
+     * for (var in exp) { body }
+     * declare var as local variable in body
+     * toplevel means SPARQL filter (not in function)
+     * toplevel let/for manage its own number of local variables for stack allocation (Bind)
+     */ 
+    void letloop(Term t) {
+        boolean isTopLevel = isTopLevel();
         Variable var    = t.getVariable();
         Expression exp  = t.getDefinition();
         Expression body = t.getBody();
 
-        if (isLocal(var)) {
-            ast.addError("Variable already defined: " + var);
-            ast.addFail(true);
-        } else {
-            exp.visit(this);
-            localize(var);
-            list.add(var);
-            clet++;
-            body.visit(this);
-            clet--;
-            list.remove(list.size() - 1);
-            remove(var);
-            if (!define && clet == 0) {
-                // top level let
-                t.setPlace(count);
-            }
+        exp.visit(this);
+        define(var);
+        body.visit(this);
+        pop(var);
+        if (isTopLevel) {
+            // top level let/for, not in function
+            t.setNbVariable(getNbVariable());
+            setNbVariable(0);
         }
-    }
-    
-    
-    /**
-     * map (xt:fun(?x), ?list)
-     * var ?x is local because it is interpreted as:
-     * (for dt : ?list) {let (?x = dt, xt:fun(?x))}
-    */
-    void map(Term t) {
-        if (trace) System.out.println("Vis Map: " + t);
-        if (t.getArgs().size() >= 2){
-            Expression fun = t.getArg(0);
-            if (fun.isFunction()) {
-                for (Expression arg : fun.getArgs()){  
-                    if (arg.isVariable()){
-                        Variable var = arg.getVariable();
-                        localize(var);
-                        remove(var);
-                    }
-                }
-                for (int i = 1; i<t.getArgs().size(); i++){
-                    t.getArg(i).visit(this);
-                }
-                return;
-            }
-        }
-        ast.setError("Incorrect Map: " + t);
-        ast.setFail(true);
-    }
-    
-    void apply(Term t) {
-        if (trace) System.out.println("Vis Apply: " + t);
-        if (t.getArgs().size() >= 2){        
-            for (int i = 1; i < t.getArgs().size(); i++) {
-                t.getArg(i).visit(this);
-            }
-            return;
-        }
-        ast.setError("Incorrect Apply: " + t);
-        ast.setFail(true);
     }
     
     /**
-     * aggregate(?x, xt:mediane(?list))
-     * @param t 
+     * let (var = exp) { body }
+     */    
+    void let(Term t) {
+        letloop(t);
+    }
+    
+    // for (var in exp){ body }
+    void loop(Term t) {
+        letloop(t);
+    }
+    
+       
+    /**
+     * aggregate(exp, us:mediane)
      */
-    void aggregate(Term t){
-        t.getArg(0).visit(this);
-        if (t.getArgs().size() == 2){
-            Expression fun = t.getArg(1);
-            Expression arg = fun.getArg(0);
-            Variable var = arg.getVariable();
-            localize(var);
-            remove(var);
-        }
+//    void aggregate(Term t){
+//        t.getArg(0).visit(this);
+//    }
+    
+    boolean isTopLevel(){
+        return isExpression() && getNbVariable() == 0;
     }
     
-   
-    boolean isLocal(Variable var) {
-        for (Variable v : list) {
-            if (v.equals(var)) {
-                return true;
-            }
-        }
-        return false;
+    boolean isExpression() {
+        return ! isFunctionDefinition();
+    }
+         
+    /**
+     * @return the functionDefinition
+     */
+    public boolean isFunctionDefinition() {
+        return functionDefinition;
     }
 
-    void index(Variable var) {
-        Integer n = map.get(var.getLabel());
-        if (n == null) {
-            count += 1;
-            n = count;
-            map.put(var.getLabel(), n);
-        }
-        var.setIndex(n);
-        if (trace) System.out.println("EVL: " + var + " " + n);
+    /**
+     * @param functionDefinition the functionDefinition to set
+     */
+    public void setFunctionDefinition(boolean functionDefinition) {
+        this.functionDefinition = functionDefinition;
     }
     
-    void remove(Variable var){
-        map.remove(var.getLabel());
+     /**
+     * @return the nbVariable
+     */
+    public int getNbVariable() {
+        return nbVariable;
     }
 
-    void localize(Variable var) {
-        var.localize();
-        index(var);
+    /**
+     * @param nbVariable the nbVariable to set
+     */
+    public void setNbVariable(int nbVariable) {
+        this.nbVariable = nbVariable;
     }
+    
 }

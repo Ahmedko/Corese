@@ -6,6 +6,7 @@ import fr.inria.acacia.corese.exceptions.EngineException;
 import fr.inria.acacia.corese.triple.parser.ASTQuery;
 import fr.inria.acacia.corese.triple.parser.Context;
 import fr.inria.acacia.corese.triple.parser.Dataset;
+import fr.inria.acacia.corese.triple.parser.Metadata;
 import fr.inria.acacia.corese.triple.parser.Option;
 import fr.inria.edelweiss.kgenv.eval.QuerySolver;
 import fr.inria.edelweiss.kgenv.parser.Pragma;
@@ -18,7 +19,10 @@ import fr.inria.edelweiss.kgram.core.Eval;
 import fr.inria.edelweiss.kgram.core.Mapping;
 import fr.inria.edelweiss.kgram.core.Mappings;
 import fr.inria.edelweiss.kgram.core.Query;
-import fr.inria.edelweiss.kgram.filter.Interpreter;
+//import fr.inria.edelweiss.kgram.filter.Interpreter;
+import fr.inria.corese.kgenv.eval.Interpreter;
+import fr.inria.corese.kgenv.eval.ProxyInterpreter;
+//import fr.inria.edelweiss.kgenv.eval.ProxyImpl;
 import fr.inria.edelweiss.kgraph.api.GraphListener;
 import fr.inria.edelweiss.kgraph.api.Loader;
 import fr.inria.edelweiss.kgraph.api.Log;
@@ -32,6 +36,7 @@ import fr.inria.edelweiss.kgtool.load.Service;
 import fr.inria.edelweiss.kgtool.util.Extension;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.HashMap;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
 
@@ -49,8 +54,14 @@ import org.apache.logging.log4j.LogManager;
 public class QueryProcess extends QuerySolver {
 
     private static Logger logger = LogManager.getLogger(QueryProcess.class);
+    private static ProducerImpl p;
+    static final String DB_FACTORY  = "fr.inria.corese.tinkerpop.Factory";
+    static final String DB_INPUT    = "fr.inria.corese.tinkerpop.dbinput";
+
     //sort query edges taking cardinality into account
     static boolean isSort = false;
+    
+    static  HashMap<String, Producer> dbmap;
     private Manager updateManager;
     private GraphManager graphManager;
     Loader load;
@@ -60,6 +71,7 @@ public class QueryProcess extends QuerySolver {
 
     static {
         setJoin(false);
+        dbmap = new HashMap<>();
         new Extension().process();
     }
 
@@ -90,12 +102,7 @@ public class QueryProcess extends QuerySolver {
             Query.isOptional = false;
         }
     }
-    
-	public static void testAlgebra(boolean b) {
-         fr.inria.edelweiss.kgenv.parser.Transformer.ISBGP = b;
-         Eval.testAlgebra = b;
-    }
-
+   
     protected QueryProcess(Producer p, Evaluator e, Matcher m) {
         super(p, e, m);
         Graph g = getGraph(p);
@@ -163,7 +170,6 @@ public class QueryProcess extends QuerySolver {
         return eval;
     }
 
-	private static ProducerImpl p;
 
     /**
 	 * isMatch = true: Each Producer perform local Matcher.match() on its
@@ -172,29 +178,61 @@ public class QueryProcess extends QuerySolver {
 	 * isMatch = false: (default) Global producer perform Matcher.match()
      */
     public static QueryProcess create(Graph g, boolean isMatch) {
-		String factory = System.getProperty("fr.inria.corese.factory");
-		if (factory == null || factory.compareTo("") == 0) {
-			logger.info("property fr.inria.corese.factory not defined, using the default ProducerImpl");
-				p = ProducerImpl.create(g);
-				p.setMatch(isMatch);
-		} else if (p == null) {
-			logger.info("property fr.inria.corese.factory defined. Using factory: " + factory);
-			try {
-					Class<?> classFactory = Class.forName(factory);
-				Method method = classFactory.getMethod("create", Graph.class);
-				p = (ProducerImpl) method.invoke(null, g);
-        p.setMatch(isMatch);
-			} catch (ClassNotFoundException | NoSuchMethodException | SecurityException | IllegalAccessException | IllegalArgumentException | InvocationTargetException ex) {
-				logger.fatal(ex);
-				logger.fatal("impossible to create a producer, aborting");
-				ex.printStackTrace();
-				System.exit(-1);
-			}
-		}
+        String factory = System.getProperty("fr.inria.corese.factory");
+        if (factory == null || factory.compareTo("") == 0) {
+            return stdCreate(g, isMatch);
+        } else {
+            return dbCreate(g, isMatch, factory, null);
+        }
+    }
+    
+    public static QueryProcess dbCreate(Graph g, boolean isMatch, String factory, String db) {
+        Producer p = getCreateProducer(g, factory, db);
         QueryProcess exec = QueryProcess.create(p);
-
         exec.setMatch(isMatch);
         return exec;
+    }
+    
+    public static QueryProcess stdCreate(Graph g, boolean isMatch) {
+        ProducerImpl p = ProducerImpl.create(g);
+        p.setMatch(isMatch);
+        QueryProcess exec = QueryProcess.create(p);
+        exec.setMatch(isMatch);
+        return exec;
+    }
+            
+    public static synchronized Producer getCreateProducer(Graph g, String factory, String db) {
+        if (db == null) {
+            if (p == null) {
+                logger.info("property fr.inria.corese.factory defined. Using factory: " + factory);
+                p = createProducer(g, factory, db);
+            }
+            return p;
+        } else {
+            Producer prod = dbmap.get(db);
+            if (prod == null) {
+                prod = createProducer(g, factory, db);
+                dbmap.put(db, prod);
+            }
+            return prod;
+        }
+    }
+    
+    static ProducerImpl createProducer(Graph g, String factory, String db) {
+        if (db != null){
+            System.setProperty(DB_INPUT, db);
+        }
+        try {
+            Class<?> classFactory = Class.forName(factory);
+            Method method = classFactory.getMethod("create", Graph.class);
+            ProducerImpl p = (ProducerImpl) method.invoke(null, g);
+            logger.info("Connect db");
+            return p;
+        } catch (ClassNotFoundException | NoSuchMethodException | SecurityException | IllegalAccessException | IllegalArgumentException | InvocationTargetException ex) {
+            logger.error(ex);
+            logger.error("impossible to create a producer, aborting");
+        }
+        return ProducerImpl.create(g);
     }
 
     public static QueryProcess create(Graph g, Graph g2) {
@@ -262,11 +300,30 @@ public class QueryProcess extends QuerySolver {
     }
 
     public static Interpreter createInterpreter(Producer p, Matcher m) {
-        Interpreter eval = interpreter(p);
-        eval.getProxy().setPlugin(PluginImpl.create(m));
+        PluginImpl plugin = PluginImpl.create(m);
+        ProxyInterpreter  proxy = new ProxyInterpreter();
+        proxy.setPlugin(plugin);
+        Interpreter eval  = new Interpreter(proxy);
+	eval.setProducer(p);
         return eval;
     }
-
+    
+//    public static Interpreter createInterpreter(Producer p, Matcher m) {
+//        PluginImpl plugin = PluginImpl.create(m);
+//        ProxyImpl  proxy = new ProxyImpl();
+//        proxy.setPlugin(plugin);
+//        Interpreter eval  = new Interpreter(proxy);
+//	eval.setProducer(p);
+//        return eval;
+//    }    
+    
+    
+//    public static Interpreter createInterpreter(Producer p, Matcher m) {       
+//        Interpreter eval = interpreter(p);        
+//        eval.getProxy().setPlugin(PluginImpl.create(m));
+//        return eval;
+//    }
+    
     /**
 	 * *************************************************************
      *
@@ -280,6 +337,7 @@ public class QueryProcess extends QuerySolver {
 
     @Override
     public Mappings query(String squery) throws EngineException {
+        //System.out.println(squery);
         return doQuery(squery, null, null);
     }
 
@@ -346,7 +404,18 @@ public class QueryProcess extends QuerySolver {
     public Mappings eval(Query query, Mapping m) {
         return qquery(query, m, null);
     }
-
+    
+    /**
+     * Use case: LDScript function execute query(construct where)
+     */
+    @Override
+    public Mappings eval(Query query, Mapping m, Producer p) {
+        if (p != getProducer()){
+            return create(p).qquery(query, m, null);
+        }
+        return qquery(query, m, null);
+    }
+    
     @Override
     public Query load(String path) {
         QueryLoad ql = QueryLoad.create();
@@ -495,6 +564,9 @@ public class QueryProcess extends QuerySolver {
             //select where {}
             return service(q, m);
         }
+        else {
+            dbProducer(q);
+        }
         Mappings map;
 
         if (q.isUpdate() || q.isRule()) {
@@ -516,6 +588,18 @@ public class QueryProcess extends QuerySolver {
 
         finish(q, map);
         return map;
+    }
+    
+    void dbProducer(Query q) {
+        ASTQuery ast = getAST(q);
+        if (ast.hasMetadata(Metadata.DB)) {
+            String factory = DB_FACTORY;
+            if (ast.hasMetadata(Metadata.DB_FACTORY)){
+                factory = ast.getMetadataValue(Metadata.DB_FACTORY);
+            }
+            Producer prod = getCreateProducer(getGraph(), factory, ast.getMetadataValue(Metadata.DB));            
+            setProducer(prod);
+        }
     }
 
     void finish(Query q, Mappings map) {

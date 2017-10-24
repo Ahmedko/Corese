@@ -18,9 +18,11 @@ import fr.inria.acacia.corese.triple.cst.RDFS;
 import fr.inria.acacia.corese.triple.printer.SPIN;
 import fr.inria.acacia.corese.triple.update.ASTUpdate;
 import fr.inria.corese.compiler.java.JavaCompiler;
+import fr.inria.edelweiss.kgram.api.core.ExprType;
 import fr.inria.edelweiss.kgram.api.query.Graphable;
 import java.io.IOException;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * <p>Title: Corese</p>
@@ -56,6 +58,11 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
     public static final String BNVAR = "?_bn_";
     public static final String MAIN_VAR = "?_main_";
     static final String FOR_VAR = "?_for_";
+    static final String LET_VAR = "?_let_";
+    static final String FUN_VAR = "?_fun_var_";
+
+    static final String FUN_NAME = NSManager.EXT_PREF+":_fun_";
+    static final String FUN_PREF = NSManager.EXT_PREF+":";
     static final String NL = System.getProperty("line.separator");
     static int nbt = 0; // to generate an unique id for a triple if needed
     public final static int QT_SELECT = 0;
@@ -168,6 +175,7 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
     int Offset = 0;
     int nbBNode = 0;
     int nbd = 0; // to generate an unique id for a variable if needed
+    int nbfun = 0, nbvar = 0;
     int resultForm = QT_SELECT;
     private int priority = 100;
     int countVar = 0;
@@ -225,7 +233,7 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
     Values values;
     List<Boolean> reverseTable = new ArrayList<Boolean>();
     HashMap<String, Expression> selectFunctions = new HashMap<String, Expression>();
-    private ASTExtension define;
+    private ASTExtension define, lambdaDefine;
     private HashMap<String, Expression> undefined;
     ExprTable selectExp = new ExprTable();
     ExprTable regexExpr = new ExprTable();
@@ -322,6 +330,10 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
     public ASTExtension getDefine() {
         return define;
     }
+    
+    public ASTExtension getDefineLambda() {
+        return lambdaDefine;
+    }
 
     /**
      * @param define the define to set
@@ -395,6 +407,7 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
     private ASTQuery() {
         dataset = Dataset.create();
         define = new ASTExtension();
+        lambdaDefine = new ASTExtension();
         undefined = new HashMap();
     }
 
@@ -621,7 +634,7 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
      * Used by VariableVisitor, called by Transformer def = function(st:foo(?x)
      * = st:bar(?x))
      */
-    void define(Expression fun) {
+    void define(Function fun) {
         Expression t = fun.getFunction(); 
         getGlobalAST().getUndefined().remove(t.getLabel());
     }
@@ -887,6 +900,17 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
     public boolean isRule() {
         return rule;
     }
+    
+    public List<Variable> getSelectVariables() {
+        ArrayList<Variable> list = new ArrayList<>();
+        list.addAll(getSelectVar());
+        for (Variable var : getSelectAllVar()){
+            if (! list.contains(var)){
+                list.add(var);
+            }
+        }
+        return list;
+    }
 
     public List<Variable> getSelectVar() {
         return selectVar;
@@ -1036,67 +1060,118 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
     public Expression createUnaryExpression(String oper, Expression expression) {
         checkBlank(expression);
         if (oper.equals(SENOT)) {
-            expression = new Term(oper, expression);
+            expression = Term.negation(expression);
         } else if (oper.equals("-")) {
-            expression = new Term(oper,
+            expression = Term.create(oper,
                     Constant.create("0", RDFS.qxsdInteger), expression);
         } // else : oper.equals("+") => don't do anything
         return expression;
     }
 
-    public Term createFunction(String name) {
-        Term term = Term.function(name);
-        // no toNamespaceB()
-        term.setLongName(getNSM().toNamespace(name));
-        return term;
-    }
-
-    // TBD: clean this
-    public Term createFunction(Constant name) {
-        Term term = createFunction(name.getName());
-        term.setCName(name);
-        return term;
+    
+    Constant functionName(){
+        UUID uuid = UUID.randomUUID();
+        return createQName(FUN_PREF +  uuid.toString());
     }
     
-    public Term createReturn(Expression exp) {
-        Term term = createFunction(Processor.RETURN);
-        term.setCName(Constant.createResource(Processor.RETURN));
-        term.add(exp);
-        return term;
-    }
-
-    public Term createFunction(Constant name, ExpressionList el) {
-        Term term = createFunction(name.getName(), el);
-        term.setCName(name);
-        return term;
+    Constant functionName2(){
+        return createQName(FUN_NAME + nbfun++);
     }
    
     /**
      * function name(el) { exp } -> function (name(el), exp)
      */
     public Function defineFunction(Constant name, ExpressionList el, Expression exp, Metadata annot) {
-        Term fun = createFunction(name, el);
+        Function fun = defFunction(name, el, exp, annot);
+        record(fun);    
+        return fun;
+    }
+    
+    // lambda(?x) {}
+     public Function defineLambda(ExpressionList el, Expression exp, Metadata annot) {
+         if (el.isNested()){
+             // lambda((?x, ?y)){ exp } 
+             // ->
+             // lambda(?m) { let ((?x, ?y) = ?m) { exp }}
+             Variable var = new Variable(LET_VAR + nbd++);
+             ExpressionList list = new ExpressionList(var);
+             Term deflet = defLet(el.getList().get(0), var);
+             Term let = let(deflet, exp);
+             return defineLambda(list, let, annot);
+         }
+         return getGlobalAST().defineLambdaUtil(el, exp, annot);
+     }
+     
+    Function defineLambdaUtil(ExpressionList el, Expression exp, Metadata annot) {
+        return  defineLambdaUtil(functionName(), el, exp, annot);
+    }
+        
+    Function defineLambdaUtil(Constant name, ExpressionList el, Expression exp, Metadata annot) {    
+        Function fun = defFunction(name, el, exp, annot);
+        fun.defineLambda();
+        record(fun);    
+        return fun;
+    }
+     
+    
+    /**
+     * Define lambda for function URI
+     * use case:  
+     * apply(rq:plus, ?list) ->
+     * apply(lambda(?x, ?y) { rq:plus(?x, ?y) }, ?list)
+     * Use globalAST in case of lambda generated in subquery
+     */
+    Function defineLambda(Constant uri, int arity) {
+        return getGlobalAST().defineLambdaUtil(uri, arity);
+    }
+    
+    Function defineLambdaUtil(Constant uri, int arity) {
+        ExpressionList el = new ExpressionList();
+        for (int i = 0; i < arity; i++){
+            el.add(createVariable(FUN_VAR+nbvar++));
+        }
+        Term t = createFunction(uri, el);
+        Function fun = defineLambdaUtil(el, t, null);
+//        Function fun = defFunction(functionName(), el, t, null);
+//        fun.setLambda(true);
+//        record(fun);
+        return fun;
+    }
+           
+    void record(Function fun){
+         if (fun.isLambda()){
+             lambdaDefine.defineFunction(fun);
+         }
+         else {
+             define.defineFunction(fun);
+         }
+    }
+        
+    Function defFunction(Constant name, ExpressionList el, Expression exp, Metadata annot) {
+        Term fun = createFunction(name, el);      
         Function def = new Function(fun, exp);
         annotate(def, annot);
         if (el.getTable() != null){
             def.setTable(el.getTable());
         }
-        define.defineFunction(def);
         return def;
     }
+          
 
     /**
-     * Create an extension ext function for predefined name function function
-     * rq:isURI(?x) { isURI(?x) }
+     * Runtime create extension function ext for predefined  function name
+     * function rq:isURI(?x) { isURI(?x) }
      */
-    Function defExtension(String ext, String name, int arity) {
-        Constant c = Constant.create(ext);
+    public Function defExtension(String ext, String name, int arity) {
+        Constant c = createQNameURI(ext);
         ExpressionList el = new ExpressionList();
         for (int i = 0; i < arity; i++) {
-            el.add(new Variable("?_var_" + i));
+            el.add(createVariable(FUN_VAR + i));
         }
-        Term t = createFunction(Constant.create(name), el);
-        return defineFunction(c, el, t, null);
+        Term t = createFunction(createQNameURI(name), el);
+        Function fun = defineFunction(c, el, t, null);
+        fun.compile(this);
+        return fun;
     }
 
     public void annotate(Function t, Metadata la) {
@@ -1127,6 +1202,10 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
     public Metadata getMetadata() {
         return metadata;
     }
+    
+    public String getMetadataValue(int type) {
+        return metadata.getValue(type);
+    }
 
     public boolean hasMetadata(int type) {
         return metadata != null && metadata.hasMetadata(type);
@@ -1136,7 +1215,7 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
         return metadata != null && metadata.hasValue(type, value);
     }
     
-     public boolean hasMetadataValue(int type, String value) {
+    public boolean hasMetadataValue(int type, String value) {
         return metadata != null && metadata.hasValues(type, value);
     }
 
@@ -1211,13 +1290,57 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
     }
     
     /**
-     * exp: var = exp | match(var_1, .., var_n) = exp
-     * match(?x, ?y) is AST for let ((?x, ?y) = exp)
+     * exp: var = ee | match(var_1, .., var_n) = ee
+     * match(?x, ?y) is AST for let ((?x, ?y) = ee)
      * this match() AST is compiled by Processor
+     * nested: let (((?x, ?y)) = select where)
      */
     Term let(Expression exp, Expression body) {
+        if (exp.getArg(0).isTerm() && exp.getArg(0).getTerm().isNested()) {
+            return let(exp.getArg(0).getTerm().getNestedList(), exp.getArg(1), body);
+        }
         return new Let(exp, body);
     }
+          
+    /**
+     * let(varList = exp)
+     * compile as 
+     * let (var = xt:get(exp, 0), match(varList) = var){ body }
+     * use case: let (((?x, ?y)) = select where)
+     * get first Mapping, match it
+     * use case: let (((?var, ?val)) = ?m)
+     * get first Binding, match it
+     */
+    
+     Term let(ExpressionList expList, Expression exp, Expression body) { 
+         if (! exp.isTerm() || expList.getList().size() == 1){
+            return let(expList, exp, body, 0);
+         }
+         // let (var = exp)
+         Variable var = new Variable(LET_VAR + nbd++);
+         return let(defLet(var, exp), let(expList, var, body, 0));
+     }
+    
+    // recurse on  expList 
+    Term let(ExpressionList expList, Expression exp, Expression body, int n) { 
+        Variable var = new Variable(LET_VAR + nbd++);
+        ExpressionList list = expList.getList().get(n) ;
+        Term fst = defGet(var, exp, n);
+        Term snd = defLet(list, var);  
+        Expression rest =  body;
+        if (n+1 < expList.getList().size()){
+            rest = let(expList, exp, body, n+1);
+        }
+        return new Let(fst, new Let(snd, rest));
+    }
+     
+//    Term let2(ExpressionList expList, Expression exp, Expression body, int n) {            
+//        Variable var = new Variable(LET_VAR + nbd++);
+//        Term fst = defGet(var, exp, n);
+//        ExpressionList list = expList.getList().get(n) ;
+//        Term snd = defLet(list, var);       
+//        return new Let(fst, new Let(snd, body));
+//    }
 
     public Term defLet(Variable var, Constant type, Expression exp) {
         return Term.create("=", var, exp);
@@ -1226,9 +1349,156 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
     public Term defLet(Variable var, Expression exp) {
         return Term.create("=", var, exp);
     }
+    
     public Term defLet(ExpressionList lvar, Expression exp) {
+        complete(lvar, exp, true);
         Term t = createFunction(Processor.MATCH, lvar);
+        t.setNestedList(lvar);
+        t.setNested(lvar.isNested());
         return Term.create("=", t, exp);
+    }
+    
+    /**
+     * let (match(?x, ?p, ?y) = ?l) {} ::= 
+     * let (?x = xt:get(?l, 0), ?p =
+     * xt:get(?l, 1), ?y = xt:get(?l, 2)) {}
+     *
+     */
+    void processMatch(Let term) {
+        Expression match = term.getVariableDefinition().getArg(0);
+        Expression list = term.getDefinition();
+
+        if (match.isFunction() && match.getLabel().equals(Processor.MATCH)) {
+            ExpressionList l = new ExpressionList();
+
+            Variable var;
+            if (list.isVariable()) {
+                var = list.getVariable();
+            } else {
+                // eval list exp once, store it in variable
+                var = Variable.create(LET_VAR + nbd++);
+                l.add(defLet(var, list));
+            }
+
+            int j = 0;
+            for (Expression arg : match.getArgs()) {
+                l.add(defGenericGet(arg.getVariable(), var, j++));
+            }
+
+            Term let = defineLet(l, term.getBody(), 0);
+            term.setArgs(let.getArgs());
+        }
+    }
+    
+    /**
+         * map(rq:fun, ?list)
+         * -> 
+         * map(lambda(?x){ rq:fun(?x) }, ?list)
+         */
+    void processMap(Term term) {
+        if (term.getArgs().size() > 1) {
+            Expression fst = term.getArg(0);
+            if (fst.isConstant()) {
+                Constant cst = fst.getConstant();
+                if (isDefined(cst.getLabel())) {
+                    Function fun = defineLambda(cst, arity(term));
+                    term.setArg(0, fun);
+                }
+            }
+        }
+    }
+    
+    /**
+     * 
+     * aggregate(?x, xt:mediane) ->
+     * aggregate(?x, xt:mediane(?y))
+     * TODO: fix it as above
+     */
+    void processAggregate(Term term) {
+        if (term.getArgs().size() == 2) {
+            Expression rst = term.getArg(1);
+            if (rst.isConstant()) {
+                Term fun = createFunction(rst.getConstant());
+                Variable var = ASTQuery.createVariable("?_agg_var");
+                fun.add(var);
+                term.setArg(1, fun);
+            }
+        }
+    }
+    
+      int arity(Term t){
+          if (t.getLabel().equals(Processor.REDUCE)){
+              return 2;
+          }
+          return t.getArgs().size() - 1;
+      }
+      
+      boolean isDefined(String uri){
+          return Processor.getOper(uri) != ExprType.UNDEF;
+      }
+    
+    /**
+     * exp = exists { select where }
+     * use case: let (select where)
+     */
+    void complete(ExpressionList lvar, Expression exp, boolean nest) {
+        if (lvar.isEmpty() && ! lvar.isNested() && exp.isTerm()) {
+            Exp query = exp.getTerm().getExistContent();
+            if (query != null){
+                ASTQuery ast = query.getQuery();
+                ast.validate();
+                ExpressionList el = new ExpressionList();
+                for (Variable var : ast.getSelectVariables()) {
+                    el.add(var);
+                }
+                lvar.add(el);
+            }
+        }
+    }
+    
+    /**
+     * exp = exists { select where }
+     * use case: for (select where)
+     */
+    void complete(ExpressionList lvar, Expression exp) {
+        if (lvar.isEmpty() && !lvar.isNested() && exp.isTerm()) {
+            Exp query = exp.getTerm().getExistContent();
+            if (query != null){
+                ASTQuery ast = query.getQuery();
+                ast.validate();
+                for (Variable var : ast.getSelectVariables()) {
+                    lvar.add(var);
+                }
+            }
+        }
+    }
+    
+    public Term defLet2(ExpressionList lvar, Expression exp) {
+        Term t = createFunction(Processor.MATCH, lvar);
+        t.setNestedList(lvar);
+        t.setNested(lvar.isNested());
+        return Term.create("=", t, exp);
+    }
+    /**
+     * 
+     * 
+     * @param var
+     * @param exp
+     * @param i
+     * @return 
+     */
+    
+    Term defGenericGet(Variable var, Expression exp, int i) {
+        Term fun = createFunction(createQName(Processor.FUN_XT_GGET), exp);
+        fun.add(Constant.createString(var.getLabel()));
+        fun.add(Constant.create(i));
+        return defLet(var, fun);
+    }
+    
+    Term defGet(Variable var, Expression exp, int i) {
+        Term fun = createFunction(createQName(Processor.FUN_XT_GET), exp);
+        fun.add(Constant.create(i));
+        return defLet(var, fun);
     }
     
     public Term defineLoop(Variable var, ExpressionList lvar, 
@@ -1251,6 +1521,7 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
      */
     public Term defFor(ExpressionList lvar, Expression exp, Expression body) {
         Variable var = new Variable(FOR_VAR + nbd++);
+        complete(lvar, exp);
         return defFor(var, exp, let(defLet(lvar, var), body));
     }
     
@@ -1261,7 +1532,7 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
      *   for (var in exp){
      *     xt:add(body, ?list)
      *   }
-     *   apply(rq:concat, ?list)
+     *   reduce(rq:concat, ?list)
      * }
      */
     public Term defLoop(Variable var, Expression exp, Expression body) {
@@ -1270,7 +1541,7 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
         Expression add = createFunction(createQName("xt:add"), body, list);
         Expression loop = new ForLoop(var, exp, add);
         Expression app  = 
-                createFunction(Constant.createResource("apply"), 
+                createFunction(Constant.createResource("reduce"), 
                 createQName("rq:concat"), list);
         Expression stmt = createFunction(Constant.createResource("sequence"), 
                 loop, app);
@@ -1290,6 +1561,12 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
         def.getArg(0).setPublic(true);
         def.setPublic(true);
     }
+    
+    public Term createFunction(Constant name) {
+        Term term = createFunction(name.getName());
+        term.setCName(name);
+        return term;
+    }
 
     public Term createFunction(Constant name, Expression exp) {
         Term term = createFunction(name.getName(), exp);
@@ -1302,14 +1579,47 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
         term.add(e2);
         return term;
     }
-
+    
+    public Term createFunction(Constant name, ExpressionList el) {
+        Term term = createFunction(name.getName(), el);
+        term.setCName(name);
+        return term;
+    }  
+    
+    
+    public Term createFunction(String name) {
+        String longName = getNSM().toNamespace(name);
+        Term term = Term.function(name, longName);
+        // no toNamespaceB()
+        term.setLongName(longName);
+        term.setAST(this);
+        return term;
+    }
+    
     public Term createFunction(String name, ExpressionList el) {
         if (name.equals(Processor.MAPFUN)){
             return createMapfun(name, el);
         }
         return createFun(name, el);
     }
-        
+    
+    public Term createFunction(String name, Expression expression1) {
+        Term term = createFunction(name);
+        term.add(expression1);
+        return term;
+    }
+
+
+
+ 
+    
+    public Term createReturn(Expression exp) {
+        Term term = createFunction(Processor.RETURN);
+        term.setCName(Constant.createResource(Processor.RETURN));
+        term.add(exp);
+        return term;
+    }
+
         
     Term createFun(String name, ExpressionList el) {
         Term term = createFunction(name);
@@ -1332,7 +1642,7 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
          el.remove(0);
          Term maplist = createFunction(Processor.MAPLIST, el);
          list.add(maplist);
-         Term mapfun = createFunction(Processor.APPLY, list);
+         Term mapfun = createFunction(Processor.REDUCE, list);
          return mapfun;
      }
     
@@ -1368,8 +1678,9 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
 
 
     public Constant createLDSList(IDatatype dt){
-        Constant list = Constant.createBlank("_:list");
-        list.setDatatypeValue(dt);
+//        Constant list = Constant.createBlank("_:list");
+//        list.setDatatypeValue(dt);
+        Constant list = Constant.create(dt);
         return list;
     }
     
@@ -1452,12 +1763,6 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
                 createQName(RDFS.qrdfFirst));
     }
 
-    public Term createFunction(String name, Expression expression1) {
-        Term term = createFunction(name);
-        term.add(expression1);
-        return term;
-    }
-
     static Term createTerm(String s) {
         Term term = new Term(s);
         return term;
@@ -1487,16 +1792,26 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
         return cst;
     }
 
-    // ex:name
-    public Constant createQName(String s) {
-        String lname = getNSM().toNamespaceB(s);
-        Constant cst = Constant.createResource(s, lname);
-        if (s.equals(lname)) {
-            addError("Undefined prefix: ", s);
+    public Constant createQName(String qname) {
+        String uri = getNSM().toNamespaceB(qname);
+        Constant cst = Constant.createResource(qname, uri);
+        if (qname.equals(uri)) {
+            addError("Undefined prefix: ", qname);
         }
         cst.setQName(true);
         return cst;
     }
+    
+    // only for defined namespaces
+    public Constant createQNameURI(String uri) {
+        String qname = getNSM().toPrefix(uri, true);
+        Constant cst = Constant.createResource(qname, uri);
+        if (! uri.equals(qname)) {
+           cst.setQName(true); 
+        }       
+        return cst;
+    }
+    
 
     // <uri>
     public Constant createURI(String s) {
@@ -1642,8 +1957,15 @@ public class ASTQuery implements Keyword, ASTVisitable, Graphable {
      * exp is a subquery nest it in Term exists { exp } use case: for (?m in
      * select where){}
      */
-    public Term toExist(Exp exp) {
+    public Term term(Exp exp) {
+        return term(exp, null);
+    }
+       
+    public Term term(Exp exp, Expression graph) {
         Term t = createExist(exp, false);
+        if (graph != null){
+            t.add(graph);
+        }
         // return all Mapping of subquery:
         t.setSystem(true);
         return t;

@@ -5,34 +5,34 @@
 # Olivier Corby - Wimmics, Inria, I3S - 2015
 #
 prefix cal: <http://ns.inria.fr/sparql-extension/calendar/>
-select 
 
-(cal:jour(now()) as ?fr)
-
+select (cal:jour(now()) as ?fr)
 where  { }
 
-export {
-function xt:day(?d)  { cal:day(?d)}
+
+@public {
+
+function xt:day(?d)  { cal:day(?d) }
 
 function xt:jour(?d) { cal:jour(?d) }
 
-function cal:day(?d)  { cal:en(cal:find(?d))}
+function cal:day(?d)  { cal:en(cal:find(?d)) }
 
 function cal:jour(?d) { cal:fr(cal:find(?d)) }
 
-function cal:div(?a, ?b) { xsd:integer(floor(?a / ?b))}
+function cal:div(?a, ?b) { xsd:integer(floor(?a / ?b)) }
 
-function cal:mod(?a, ?b) { xsd:integer(?a - (?b * cal:div(?a, ?b)))}
+function cal:mod(?a, ?b) { xsd:integer(?a - (?b * cal:div(?a, ?b))) }
 
 function cal:bisextile(?y) {
     ((cal:mod(?y, 4) = 0) &&
       ((cal:mod(?y, 100) != 0) || (cal:mod(?y, 400) = 0)))
 }
       
-function cal:ab(?y) { cal:div(?y, 100)}
-function cal:cd(?y) { cal:mod(?y, 100)}
-function cal:k(?y)  { cal:div(cal:cd(?y), 4)}
-function cal:q(?y)  { cal:div(cal:ab(?y), 4)}
+function cal:ab(?y) { cal:div(?y, 100) }
+function cal:cd(?y) { cal:mod(?y, 100) }
+function cal:k(?y)  { cal:div(cal:cd(?y), 4) }
+function cal:q(?y)  { cal:div(cal:ab(?y), 4) }
 
 function cal:monthday(?m, ?y) {
   if (?m <= 2,

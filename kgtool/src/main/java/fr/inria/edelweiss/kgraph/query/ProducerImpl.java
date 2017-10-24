@@ -38,8 +38,11 @@ import fr.inria.edelweiss.kgtool.util.ValueCache;
 import java.util.HashMap;
 
 /**
- * Producer Implement getEdges() for KGRAM interpreter rely on
- * graph.getDataStore().getDefault() graph.getDataStore().getNamed()
+ * Producer
+ * Implement getEdges() for KGRAM interpreter
+ * rely on 
+ * graph.getDataStore().getDefault()
+ * graph.getDataStore().getNamed()
  *
  * @author Olivier Corby, Edelweiss INRIA 2010
  *
@@ -191,16 +194,17 @@ public class ProducerImpl implements Producer, IProducerQP {
 	 * @param gNode : null or named graph pattern: graph gNode { }
 	 * @param from : null, from or from named if gNode != null
 	 * @param edge : query Edge
-	 * @param env : Environment with partial variable bindings if gNode ==
-	 * null: query default graph, possibly with from eliminate duplicate
-	 * edges (same edge with different named graph) if gNode != null: query
-	 * named graph, possibly with from named gNode may be a constant value
-	 * or it may have a value in env
+     * @param env : Environment with partial variable bindings 
+     * if gNode == null: query default graph, possibly with from
+     * eliminate duplicate edges (same edge with different named graph)    
+     * if gNode != null: query named graph, possibly with from named
+     * gNode may be a constant value or it may have a
+     * value in env
 	 *
-	 * Use cases: 1. named graph: gNode edge, from named gNode edge (gNode:
-	 * uri or var with or without value in env) 2. default graph: edge, from
-	 * edge if edge has a bound query node, use its value to focus candidate
-	 * edges in the Edge Index
+     * Use cases:
+     * 1. named graph:   gNode edge, from named gNode edge (gNode: uri or var with or without value in env)
+     * 2. default graph: edge, from edge
+     * if edge has a bound query node, use its value to focus candidate edges in the Edge Index
 	 */
 	@Override
 	public Iterable<Entity> getEdges(Node gNode, List<Node> from, Edge edge,
@@ -298,7 +302,7 @@ public class ProducerImpl implements Producer, IProducerQP {
 	 * Enumerate candidate edges either from default graph or from named
 	 * graphs
 	 */
-	Iterable<Entity> getEdges(Node gNode, Node sNode, List<Node> from,
+	public Iterable<Entity> getEdges(Node gNode, Node sNode, List<Node> from,
 		Node predicate, Node focusNode, Node objectNode, int n) {
 		return dataProducer(gNode, from, sNode).iterate(predicate, focusNode, n);
 	}
@@ -420,31 +424,41 @@ public class ProducerImpl implements Producer, IProducerQP {
 	}
 
 	/**
-	 * Edges for Property Path elementary Regex property | ^property | !(p1
-	 * | | pn) gNode: query named graph from: from/named src: target named
-	 * graph start: the start node of target edges index: 0 for start
-	 * subject, 1 for start object index = 1 occurs when edge object has a
-	 * value or is constant in this case path search goes from object to
-	 * subject.
+     * Edges for Property Path elementary Regex
+     * property | ^property  |  !(p1 | | pn)
+     * gNode: query named graph
+     * from: from/named
+     * src: target named graph
+     * start: the start node of target edges 
+     * index: 0 for start subject, 1 for start object
+     * index = 1 occurs when edge object has a value or is constant
+     * in this case path search goes from object to subject.
 	 *
 	 */
 	@Override
 	public Iterable<Entity> getEdges(Node gNode, List<Node> from, Edge edge, Environment env,
 		Regex exp, Node src, Node start, int index) {
 
+		boolean isdb = isDB();
 		if (start == null) {
 			Node qNode = edge.getNode(index);
 			if (qNode.isConstant()) {
 				//	start = qNode;
 				start = graph.getExtNode(qNode);
 				if (start == null) {
-					return empty;
+					if (isdb) {
+						start = qNode;
+					} else {
+						return empty;
+					}
 				}
 			}
 		}
 
 		if (start != null && isExtern(start, env)) {
-			start = graph.getNode(start);
+			if (!isdb) {
+				start = graph.getNode(start);
+			}
 		}
 
 		if (exp.isReverse()) {
@@ -459,12 +473,20 @@ public class ProducerImpl implements Producer, IProducerQP {
 
 		Node predicate = graph.getPropertyNode(exp.getLongName());
 		if (predicate == null) {
-			return empty;
+			if (isdb) {
+				predicate = (IDatatype) exp.getDatatypeValue();
+			} else {
+				return empty;
+			}
 		}
 
 		Iterable<Entity> it = getEdges(gNode, src, from, predicate, start, null, index);
 
 		return it;
+	}
+
+	boolean isDB() {
+		return getClass() != ProducerImpl.class;
 	}
 
 	/**
@@ -655,18 +677,8 @@ public class ProducerImpl implements Producer, IProducerQP {
 	 */
 	@Override
 	public IDatatype getValue(Object value) {
-		if (value instanceof IDatatype) {
-			return (IDatatype) value;
+        return DatatypeMap.getValue(value);
 		}
-		if (value instanceof Node) {
-			return nodeValue((Node) value);
-		}
-		IDatatype dt = DatatypeMap.cast(value);
-		if (dt == null) {
-			dt = DatatypeMap.createObject(value);
-		}
-		return dt;
-	}
 
 	IDatatype nodeValue(Node n) {
 		return (IDatatype) n.getValue();
@@ -685,9 +697,10 @@ public class ProducerImpl implements Producer, IProducerQP {
 	}
 
 	/**
-	 * Return a Node given a value (IDatatype value) Use case: select/bind
-	 * (exp as node) return the Node in the graph or return the IDatatype
-	 * value as is (to speed up)
+     * Return a Node given a value (IDatatype value) 
+     * Use case: select/bind (exp as node) 
+     * return the Node in the graph or return the IDatatype value as is
+     * (to speed up)
 	 *
 	 */
 	@Override
@@ -822,7 +835,7 @@ public class ProducerImpl implements Producer, IProducerQP {
 	public boolean isProducer(Node node) {
 		IDatatype dt = (IDatatype) node.getValue();
 		if (dt.getObject() != null) {
-			return toRDF.isGraphAble(dt.getObject());
+			return toRDF.isGraphAble(dt.getObject()) || dt.getObject() instanceof Producer;
 		}
 		// system named graph in a GraphStore
 		return graph.getNamedGraph(node.getLabel()) != null;
@@ -839,6 +852,8 @@ public class ProducerImpl implements Producer, IProducerQP {
 
 		if (obj == null) {
 			g = graph.getNamedGraph(node.getLabel());
+		} else if (obj instanceof Producer) {
+			return (Producer) obj;
 		} else {
 			g = toRDF.getGraph(obj);
 		}

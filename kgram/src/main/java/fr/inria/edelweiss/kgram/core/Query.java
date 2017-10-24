@@ -30,6 +30,20 @@ import org.apache.logging.log4j.LogManager;
  */
 public class Query extends Exp implements Graphable {
 
+    /**
+     * @return the algebra
+     */
+    public boolean isAlgebra() {
+        return algebra;
+    }
+
+    /**
+     * @param algebra the algebra to set
+     */
+    public void setAlgebra(boolean algebra) {
+        this.algebra = algebra;
+    }
+
     public static final int QP_T0 = 0; //No QP settings
     public static final int QP_DEFAULT = 1; //Default Corese QP
     public static final int QP_HEURISTICS_BASED = 2;//Heuristics based QP
@@ -135,7 +149,7 @@ public class Query extends Exp implements Graphable {
     private boolean isCompiled = false;
     private boolean hasFunctional = false;
 
-    boolean isDebug = false, isCheck = false;
+    boolean isCheck = false;
     private boolean isUseBind = true;
 
     boolean 
@@ -163,6 +177,7 @@ public class Query extends Exp implements Graphable {
             isMap = true,
             // construct where as a rule
             isRule = false, isDetail = false;
+    private boolean algebra = false;
     private boolean isMatch = false;
     private int id = -1;
     private int priority = 100;
@@ -732,14 +747,6 @@ public class Query extends Exp implements Graphable {
 
     public void setDistinct(boolean b) {
         distinct = b;
-    }
-
-    public boolean isDebug() {
-        return isDebug;
-    }
-
-    public void setDebug(boolean b) {
-        isDebug = b;
     }
 
     public boolean isCheck() {
@@ -2481,6 +2488,13 @@ public class Query extends Exp implements Graphable {
      */
     public Extension getExtension() {
         return extension;
+    }
+    
+    public Extension getCreateExtension() {
+        if (getExtension() == null){
+            setExtension(new Extension());
+        }
+        return getExtension();
     }
     
     public Extension getActualExtension(){

@@ -17,8 +17,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
-import static fr.inria.wimmics.rdf_to_bd_map.RdfToBdMap.*;
 import java.io.IOException;
+import java.util.Map;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
@@ -50,7 +50,7 @@ public class TinkerpopGraph extends fr.inria.edelweiss.kgraph.core.Graph {
 			public boolean hasNext() {
 				return edges.hasNext();
 			}
-
+			                       
 			@Override
 			public Entity next() {
 				Entity nextEntity = driver.buildEdge(edges.next());
@@ -125,11 +125,23 @@ public class TinkerpopGraph extends fr.inria.edelweiss.kgraph.core.Graph {
 			return null;
 		}
 	}
+        
+        
+        public Iterator<Map<String, Object>> getMaps(Function<GraphTraversalSource, GraphTraversal<? extends Element, Map<String, Object>>> filter){
+            GraphTraversalSource traversal = tGraph.traversal();
+            GraphTraversal<?, Map<String, Object>> map = filter.apply(traversal);
+            return map;
+        }
 
 	@Override
 	public Iterable<Entity> getEdges() {
 		return getEdges(driver.getFilter("?s?p?o?g", "", "", "", ""));
 	}
+        
+        
+        public Node getNode(Vertex v){
+            return driver.buildNode(v);
+        }
 
 	/**
 	 * @param edgeName

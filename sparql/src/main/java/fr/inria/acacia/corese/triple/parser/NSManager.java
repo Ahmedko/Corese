@@ -56,6 +56,7 @@ public class NSManager extends ASTObject {
     public static final String STL        = ExpType.STL;
     public static final String STL_FORMAT = STL + "format/";
     public static final String EXT        = ExpType.EXT;
+    public static final String DT         = ExpType.DT;
     public static final String USER       = ExpType.UXT;
     public static final String KGRAM      = ExpType.KGRAM;
     public static final String SPARQL     = ExpType.SPARQL;
@@ -777,17 +778,9 @@ public class NSManager extends ASTObject {
     public int pointerType() {
         return NSMANAGER_POINTER;
     } 
- 
-    /**
-     * 
-     * for ((?p, ?n) in st:prefix()){ }
-     */
+    
+    
     @Override
-    public Iterable getLoop() {
-        return getList().getValues();
-    }
-    
-    
     public IDatatype getList(){
         ArrayList<IDatatype> list = new ArrayList<IDatatype>();
         for (String p : tprefix.keySet()){

@@ -13,7 +13,7 @@ public class CoreseList extends CoreseUndefLiteral {
     private List<IDatatype> list;
     private static int count = 0;
     private static final String SEED = "_l_";
-    private static final IDatatype dt = getGenericDatatype(IDatatype.LIST);
+    private static final IDatatype dt = getGenericDatatype(IDatatype.LIST_DATATYPE);
 
     public CoreseList(String value) {
         super(value);
@@ -62,13 +62,36 @@ public class CoreseList extends CoreseUndefLiteral {
     @Override
     public String toString() {
         StringBuffer sb = new StringBuffer();
+        sb.append("\"");
+        getContent(sb);
+        sb.append("\"^^").append(nsm.toPrefix(getDatatypeURI()));
+        return sb.toString();
+    }
+    
+    @Override
+    public IDatatype display(){
+       return DatatypeMap.createUndef(getContent(), getDatatypeURI());
+    }
+    
+    void getContent(StringBuffer sb) {
         sb.append("(");
         for (IDatatype dt : list) {
-            sb.append(dt);
+            sb.append((dt.isList()) ? dt.getContent() : dt);
             sb.append(" ");
         }
         sb.append(")");
+    }
+    
+    @Override
+    public String getContent() {
+        StringBuffer sb = new StringBuffer();
+        getContent(sb);
         return sb.toString();
+    }
+    
+    @Override
+    public String toSparql(boolean prefix, boolean xsd) {
+        return toString();
     }
 
     @Override
@@ -78,6 +101,11 @@ public class CoreseList extends CoreseUndefLiteral {
 
     public CoreseList getList() {
         return this;
+    }
+    
+    @Override
+    public Object getObject(){
+        return list;
     }
 
     public void set(IDatatype[] dts) {
@@ -114,7 +142,7 @@ public class CoreseList extends CoreseUndefLiteral {
     }
 
     @Override
-    public boolean isTrue() throws CoreseDatatypeException {
+    public boolean isTrue()  {
         return list != null && list.size() > 0;
     }
 
@@ -125,10 +153,6 @@ public class CoreseList extends CoreseUndefLiteral {
     
     @Override
     public boolean booleanValue(){
-        try {
-            return isTrue();
-        } catch (CoreseDatatypeException ex) {
-            return false;
-        }
+        return isTrue();
     }
 }

@@ -33,7 +33,10 @@ public class Metadata extends ASTObject
     public static final int COMPILE = 17;
     public static final int SKIP    = 18;
     public static final int PATH    = 19;
-    public static final int ENCODING    = 20;
+    public static final int ENCODING= 20;
+    public static final int DB      = 21;
+    public static final int DB_FACTORY = 22;
+    public static final int BGP     = 23;
     
     static final String PREF = NSManager.KGRAM;
     public static final String DISPLAY_TURTLE   = PREF + "turtle";
@@ -54,8 +57,7 @@ public class Metadata extends ASTObject
     public static final String DISTRIBUTE_NAMED     = PREF + "distributeNamed";
     public static final String DISTRIBUTE_DEFAULT   = PREF + "distributeDefault";
     public static final String REWRITE_NAMED        = PREF + "rewriteNamed";
-    
-    
+        
     private static HashMap<String, Integer> annotation;    
     private static HashMap<Integer, String> back; 
     
@@ -78,7 +80,7 @@ public class Metadata extends ASTObject
         define("@more",     MORE);      
         define("@relax",    RELAX);      
         define("@service",  SERVICE);      
-        define("@encoding",     ENCODING);      
+        define("@encoding", ENCODING);      
         define("@bind",     BIND);      
         define("@import",   IMPORT);      
         define("@display",  DISPLAY);      
@@ -86,6 +88,9 @@ public class Metadata extends ASTObject
         define("@compile",  COMPILE);      
         define("@path",     PATH);      
         define("@skip",     SKIP);      
+        define("@db",       DB);      
+        define("@dbfactory",DB_FACTORY);      
+        define("@bgp",      BGP);      
     }
     
     static void define(String str, int type){
@@ -228,11 +233,7 @@ public class Metadata extends ASTObject
          if (name == null){
              return null;
          }
-         List<String> val = value.get(name);
-         if (val == null){
-             return null;
-         }
-         return val;
+         return  value.get(name);
     }
     
     @Override
@@ -258,16 +259,8 @@ public class Metadata extends ASTObject
         return METADATA_POINTER;
     } 
  
-    /**
-     * 
-     * for ((?p, ?n) in st:prefix()){ }
-     */
+   
     @Override
-    public Iterable getLoop() {
-        return getList().getValues();
-    }
-    
-    
     public IDatatype getList(){
          ArrayList<IDatatype> list = new ArrayList<IDatatype>();
          for (String key : map.keySet()){

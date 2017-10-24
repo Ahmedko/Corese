@@ -19,7 +19,7 @@ import org.apache.logging.log4j.LogManager;
 
 
 /**
- * Dataset Manager Load Profile Datasets into TripleStores Manage a map of
+ * TripleStore Manager Load Profile Datasets into TripleStores Manage a map of
  * TripleStore
  *
  * @author Olivier Corby, Wimmics INRIA I3S, 2015
@@ -98,7 +98,7 @@ public class Manager {
     }
 
     Profile getProfile() {
-        return Transformer.getProfile();
+        return Profile.getProfile();
     }
 
     TripleStore initTripleStore(Profile p, Service s) throws LoadException, EngineException {
@@ -124,6 +124,10 @@ public class Manager {
         return store;
     }
 
+    /**
+     * Load server content from st:content [ a sw:Workflow ; etc ]
+     * Workflow is retrieved from the profile graph.
+     */
     void init(TripleStore ts, Service service) throws LoadException, EngineException {
         Graph g = getProfile().getProfileGraph();
         Node serv = g.getNode(service.getName());
@@ -246,68 +250,4 @@ public class Manager {
         }
     }
 
-    //****************************** DRAFT *****************
-    /*
-     * try uri, then name
-     * uri is the URI of a query. If a dataset is assigned to uri, use the dataset
-     * otherwise use default triple store
-     * draft
-     */
-    @Deprecated
-    TripleStore getTripleStore(String uri, String name) throws LoadException, EngineException {
-        if (uri != null) {
-            String extURI = nsm.toNamespace(uri);
-            TripleStore t = getTripleStore(extURI);
-            if (t != null) {
-                return t;
-            }
-            Service s = getProfile().getService(extURI);
-            if (s != null) {
-                t = initTripleStore(getProfile(), s);
-                TripleStore tt = getTripleStore(name);
-                t.getGraph().setNamedGraph(STCONTEXT, tt.getGraph().getNamedGraph(STCONTEXT));
-                return t;
-            }
-        }
-        return getTripleStore(name);
-    }
-
-    // context graph may contain service definition
-    // add them to profile
-    // draft
-    @Deprecated
-    void complete() {
-        for (TripleStore ts : mapURI.values()) {
-            Graph g = ts.getGraph().getNamedGraph(STCONTEXT);
-            if (g != null) {
-                try {
-                    getProfile().initServer(g);
-                } catch (EngineException ex) {
-                    LogManager.getLogger(Tutorial.class.getName()).log(Level.ERROR, "", ex);
-                }
-            }
-        }
-    }
-
-    // draft
-    @Deprecated
-    TripleStore getServer(String uri, String profile) {
-        if (profile == null) {
-            return Transformer.getTripleStore();
-        }
-        TripleStore st = getStore(profile);
-        if (st == null) {
-            st = Transformer.getTripleStore();
-        }
-        return st;
-    }
-
-    // draft
-    TripleStore getStore(String name) {
-        Service s = getProfile().getService(nsm.toNamespace(name));
-        if (s == null || s.getServer() == null) {
-            return null;
-        }
-        return getTripleStore(s.getServer());
-    }
 }

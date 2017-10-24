@@ -141,7 +141,19 @@ public interface ExprType {
 	public static int START = 122; // ^
 	public static int IN 	= 123; 
 	public static int POWER = 124; 
+        public static int STAR  = 125;         
+        
+        
 	
+        // fake for query
+	public static int TINKERPOP = 150; 
+	public static int TINKERPOP_RESTRICT = 151; 
+	public static int BETWEEN   = 152; 
+	public static int MORE      = 153; 
+	public static int LESS      = 154; 
+	public static int KIND      = 155; 
+	public static int BIPREDICATE = 156; 
+	public static int EQ_SAME   = 157; 
 	
 	// extension
 	
@@ -268,6 +280,7 @@ public interface ExprType {
 	public static int FUNCALL       = 326;
 	public static int FOR           = 327;
 	public static int MAPAPPEND     = 328;
+	public static int REDUCE        = 329;
         
 	public static int XT_SORT       = 330;
         
@@ -296,7 +309,7 @@ public interface ExprType {
         public static int XT_TRIPLE      = 421;
         public static int XT_GEN_GET     = 422;
         public static int XT_DISPLAY     = 423;
-        public static int XT_TUNE        = 424;
+        public static int XT_PRINT       = 424;
         
         public static int XT_UNION       = 425;
         public static int XT_MINUS       = 426;
@@ -310,9 +323,21 @@ public interface ExprType {
         public static int XT_NAMED       = 434;
         public static int XT_MEMBER      = 435;
         public static int XT_MERGE       = 436;
+        public static int XT_TOLIST      = 437;
+        public static int XT_TUNE        = 438;
+        public static int XT_FOCUS       = 439;
+        public static int XT_CONTENT     = 440;
+        public static int XT_ENTAILMENT  = 441;
+        public static int XT_DATATYPE    = 442;
+        public static int XT_KIND        = 443;
+        public static int XT_METHOD      = 444;
+        public static int XT_METHOD_TYPE = 445;
+        public static int XT_ITERATE     = 446;
+        public static int XT_SWAP        = 447;
      
         public static int SLICE       = 450;
         public static int EDGE_LEVEL  = 451;
+        public static int DB          = 452;
         
 
 }

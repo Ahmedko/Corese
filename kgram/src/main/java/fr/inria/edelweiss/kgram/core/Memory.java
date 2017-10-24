@@ -10,6 +10,7 @@ import fr.inria.edelweiss.kgram.api.core.Expr;
 import fr.inria.edelweiss.kgram.api.core.ExprType;
 import fr.inria.edelweiss.kgram.api.core.Filter;
 import fr.inria.edelweiss.kgram.api.core.Node;
+import fr.inria.edelweiss.kgram.api.query.Binder;
 import fr.inria.edelweiss.kgram.api.query.Environment;
 import fr.inria.edelweiss.kgram.api.query.Evaluator;
 import fr.inria.edelweiss.kgram.api.query.Matcher;
@@ -66,14 +67,14 @@ public class Memory implements Environment {
     EventManager manager;
     boolean hasEvent = false;
     int nbEdge = 0, nbNode = 0;
-    private Bind bind;
+    private Binder bind;
     private ApproximateSearchEnv appxSearchEnv;
 
     public Memory(Matcher m, Evaluator e) {
         match = m;
         eval = e;
         bnode = new HashMap();
-        bind = new Bind();
+        //bind =  Bind.create();
         this.appxSearchEnv = new ApproximateSearchEnv();
     }
 
@@ -231,22 +232,14 @@ public class Memory implements Environment {
         }
         return str;
     }
-
-    /**
-     * Copy this Bind local variable stack into this memory Use case: function
-     * xt:foo(?x) { exists { ?x ex:pp ?y } }
-     */
-    void copy(Bind bind) {
-        for (Expr var : bind.getVariables()) {
-            Node qn = getQueryNode(var.getLabel());
-            if (qn == null) {
-                //System.out.println("Mem: undefined query node: " + var);
-            } else {
-                //System.out.println("M: " + qn + " " + bind.get(var));
-                push(qn, bind.get(var));
+    
+    Node getNode(String name, List<Node> list){
+        for (Node node : list){
+            if (node.getLabel().equals(name)){
+                return node;
             }
         }
-        setBind(bind);
+        return null;
     }
 
     /**
@@ -257,11 +250,11 @@ public class Memory implements Environment {
      * MUST push BGP solution and then push Bind
      *
      */
-    Memory copyInto(Query sub, Memory mem) {
+    Memory copyInto(Query sub, Memory mem, Exp exp) {
         int n = 0;
         if (sub == null) {
             // exists {}
-           copyInto(mem);
+           copyInto(mem, exp);
         } // subquery
         else if (eval.getMode() == Evaluator.SPARQL_MODE
                 && !sub.isBind()) {
@@ -277,7 +270,6 @@ public class Memory implements Environment {
             // only ?z is the same
 
             for (Node subNode : sub.getSelect()) {
-                //Node outNode = subNode;
                 // get out Node with same label as sub Node :
                 // TODO:  optimize it ? 
                 Node outNode = query.getOuterNodeSelf(subNode);
@@ -288,14 +280,53 @@ public class Memory implements Environment {
         return mem;
     }
     
-    void copyInto(Memory mem) {
-        if (hasBind()) {
-            mem.copy(bind);
+     /**
+     * Use case: exists {} in aggregate Copy Mapping into this fresh Memory
+     * similar to copyInto 
+     */
+    void copy(Mapping map, Exp exp) {
+        if (map.hasBind()) {
+            copy(map.getBind(), exp);
         } 
-        copyIntoMem(mem);
+        push(map, -1);
+    }
+
+//    void copy2(Mapping map, Exp exp) {
+//        if (map.hasBind()) {
+//            copy(map.getBind(), exp);
+//        } else {
+//            push(map, -1);
+//        }
+//    }
+    
+    /**
+     * exists { }  
+     * PRAGMA: when exists is in function, this memory is empty
+     */
+    void copyInto(Memory mem, Exp exp) {
+        if (hasBind()) {
+            mem.copy(bind, exp);
+        } 
+        copyInto(mem);
     }
     
-    void copyIntoMem(Memory mem) {
+    /**
+     * Copy this Bind local variable stack into this memory Use case: function
+     * xt:foo(?x) { exists { ?x ex:pp ?y } }
+     */
+    void copy(Binder bind, Exp exp) {
+        List<Node> list = exp.getNodes();
+        for (Expr var : bind.getVariables()) {
+            Node qn = getNode(var.getLabel(), list);
+            if (qn == null) {
+            } else {
+                push(qn, bind.get(var));
+            }
+        }
+        //setBind(bind);
+    }
+    
+    void copyInto(Memory mem) {
         int n = 0;
         // bind all nodes
         // use case: inpath copy the memory
@@ -305,38 +336,35 @@ public class Memory implements Environment {
         }
     }
        
-    // old version
-    void copyInto2(Memory mem) {
-        if (hasBind()) {
-            mem.copy(bind);
-        } else {
-            copyIntoMem(mem);
-        }
-    }
-
-    /**
-     * Use case: exists {} in aggregate Copy Mapping into this fresh Memory
-     * similar to copyInto above
-     */
-    void copy(Mapping map) {
-        if (map.hasBind()) {
-            copy(map.getBind());
-        } else {
-            push(map, -1);
-        }
-    }
-
     /**
      * outNode is query Node in this Memory subNode is query Node in mem Memory
      */
     void copyInto(Node outNode, Node subNode, Memory mem, int n) {
+        if (outNode != null) {
+            Node qnode = outNode;
+            if (getNode(subNode) != null) {
+                // subNode may be prebound (use case: function with exists { select })
+                qnode = subNode;
+            }
+            if (qnode != null) {
+                Node tNode = getNode(qnode);
+                if (tNode != null) {
+                    mem.push(subNode, tNode, -1);
+                    if (getPath(qnode) != null) {
+                        mem.setPath(subNode.getIndex(), getPath(qnode));
+                    }
+                }
+            }
+        }
+    }
+    
+    void copyInto2(Node outNode, Node subNode, Memory mem, int n) {
         if (outNode != null) {
             Node tNode = getNode(outNode);
             if (tNode != null) {
                 mem.push(subNode, tNode, -1);
                 if (getPath(outNode) != null) {
                     mem.setPath(subNode.getIndex(), getPath(outNode));
-                    //mem.setPath(n, getPath(outNode));
                 }
             }
         }
@@ -362,7 +390,7 @@ public class Memory implements Environment {
      * need select exp
      */
     Mapping store(Query q, Producer p, boolean subEval, boolean func) {
-        boolean complete = !Eval.testAlgebra;
+        boolean complete = ! q.getGlobalQuery().isAlgebra();
         clear();
         int nb = nbNode;
         if (!subEval && complete) {
@@ -874,7 +902,7 @@ public class Memory implements Environment {
     void pop(Mapping res, boolean isEdge) {
         int n = 0;
         for (Node qNode : res.getQueryNodes()) {
-            if (qNode.getIndex() >= 0) {
+            if (qNode != null && qNode.getIndex() >= 0) {
                 pop(qNode);
                 if (res.isPath(n)) {
                     popPath(qNode);
@@ -991,7 +1019,7 @@ public class Memory implements Environment {
      */
     @Override
     public Node getQueryNode(String name) {
-        Node node = query.getProperAndSubSelectNode(name); //query.getProperNode(name);
+        Node node = query.getProperAndSubSelectNode(name); 
         return node;
     }
 
@@ -1009,6 +1037,31 @@ public class Memory implements Environment {
             }
         }
         return ExprType.UNBOUND;
+    }
+    
+     
+    public Node getNode2(Expr var) {
+
+        switch (var.subtype()) {
+            case ExprType.LOCAL:
+                return bind.get(var);
+
+            case ExprType.UNDEF:
+                return null;
+
+            case ExprType.GLOBAL:
+            default:
+                int index = var.getIndex();
+                if (index == ExprType.UNBOUND) {
+                    index = getIndex(var.getLabel());
+                    var.setIndex(index);
+                    if (index == ExprType.UNBOUND) {
+                        return null;
+                    }
+                }
+                return getNode(index);
+        }
+
     }
 
     @Override
@@ -1151,7 +1204,7 @@ public class Memory implements Environment {
     }
 
     @Override
-    public void set(Expr exp, List<Expr> lvar, Object[] value) {
+    public void set(Expr exp, List<Expr> lvar, Node[] value) {
         bind.set(exp, lvar, value);
     }
 
@@ -1161,8 +1214,8 @@ public class Memory implements Environment {
     }
 
     @Override
-    public void unset(Expr exp, Expr var) {
-        bind.unset(exp, var);
+    public void unset(Expr exp, Expr var, Node value) {
+        bind.unset(exp, var, value);
     }
 
     @Override
@@ -1170,12 +1223,12 @@ public class Memory implements Environment {
         bind.unset(exp, lvar);
     }
 
-    public void setBind(Bind b) {
+    public void setBind(Binder b) {
         bind = b;
     }
 
     @Override
-    public Bind getBind() {
+    public Binder getBind() {
         return bind;
     }
 
@@ -1183,7 +1236,7 @@ public class Memory implements Environment {
     public boolean hasBind() {
         return bind != null && bind.hasBind();
     }
-
+    
     @Override
     public ApproximateSearchEnv getAppxSearchEnv() {
         return this.appxSearchEnv;

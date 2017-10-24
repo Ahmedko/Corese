@@ -24,7 +24,7 @@ public class CoreseBoolean extends CoreseStringLiteral {
   public static final CoreseBoolean FALSE = new CoreseBoolean(false);
   static final CoreseURI datatype=new CoreseURI(RDF.xsdboolean);
   boolean bvalue=true;
-  private Object object;
+//  private Object object;
 
   /**
    * Construct a Corese boolean
@@ -77,18 +77,27 @@ public class CoreseBoolean extends CoreseStringLiteral {
     * Cast a boolean to integer return 0/1
     */
   @Override
-   public IDatatype cast(IDatatype target, IDatatype javaType) {
-	   String lab = target.getLabel();
-	   if (lab.equals(RDF.xsdinteger)) {
-		   return DatatypeMap.newInstance(value());
-	   } else if (lab.equals(RDF.xsdfloat)) {
-		   return new CoreseFloat(value());
-	   } else if (lab.equals(RDF.xsddouble)) {
-		   return new CoreseDouble(value());
-	   } else if (lab.equals(RDF.xsddecimal)) {
-		   return new CoreseDecimal(value());
-	   }
-	   else return super.cast(target, javaType);
+   public IDatatype cast(String datatype){ 
+//	   if (datatype.equals(RDF.xsdinteger)) {
+//		   return DatatypeMap.newInstance(value());
+//	   } else if (datatype.equals(RDF.xsdfloat)) {
+//		   return new CoreseFloat(value());
+//	   } else if (datatype.equals(RDF.xsddouble)) {
+//		   return new CoreseDouble(value());
+//	   } else if (datatype.equals(RDF.xsddecimal)) {
+//		   return new CoreseDecimal(value());
+//	   }
+//	   else return super.cast(datatype); 
+           
+           switch (DatatypeMap.getCode(datatype)){
+            case INTEGER: return DatatypeMap.newInteger(value());
+            case DOUBLE:  return DatatypeMap.newDouble(value());
+            case FLOAT:   return DatatypeMap.newFloat(value());
+            case DECIMAL: return DatatypeMap.newDecimal(value());
+            case GENERIC_INTEGER: return DatatypeMap.newInstance(Integer.toString(value()), datatype); 
+            default: return super.cast(datatype); 
+           }
+                
    }
 
 
@@ -190,31 +199,31 @@ public class CoreseBoolean extends CoreseStringLiteral {
   }
      
 
-    /**
-     * @return the object
-     */
-  @Override
-    public Object getObject() {
-        return object;
-    }
-
-    /**
-     * @param object the object to set
-     */
-  @Override
-    public void setObject(Object object) {
-        this.object = object;
-    }
-  
-  @Override
-   public boolean isLoop(){
-        return object != null && object instanceof Loopable;
-    }
-    
-  @Override
-    public Iterable getLoop(){
-        return ((Loopable) object).getLoop();
-    }
-  
+//    /**
+//     * @return the object
+//     */
+//  @Override
+//    public Object getObject() {
+//        return object;
+//    }
+//
+//    /**
+//     * @param object the object to set
+//     */
+//  @Override
+//    public void setObject(Object object) {
+//        this.object = object;
+//    }
+//  
+//  @Override
+//   public boolean isLoop(){
+//        return object != null && object instanceof Loopable;
+//    }
+//    
+//  @Override
+//    public Iterable getLoop(){
+//        return ((Loopable) object).getLoop();
+//    }
+//  
 
 }

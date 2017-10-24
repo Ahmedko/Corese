@@ -1,8 +1,15 @@
 package fr.inria.acacia.corese.triple.parser;
 
+import fr.inria.acacia.corese.api.Computer;
 import fr.inria.acacia.corese.api.IDatatype;
+import fr.inria.acacia.corese.cg.datatype.DatatypeMap;
+import fr.inria.acacia.corese.triple.api.ExpressionVisitor;
 import fr.inria.corese.compiler.java.JavaCompiler;
+import fr.inria.edelweiss.kgram.api.query.Environment;
+import fr.inria.edelweiss.kgram.api.query.Producer;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 /**
  * Function definition function xt:fun(x) { exp }
@@ -11,10 +18,15 @@ import java.util.HashMap;
  *
  */
 public class Function extends Statement {
+   
     private boolean isDebug = false;
     private boolean isTest = false;
     private boolean isTrace = false;
     private boolean isPublic = false;
+    private boolean lambda = false;
+    private boolean visited = false;
+    
+    private IDatatype dt;
     
     Metadata annot;
     private HashMap<String, Constant> table;
@@ -22,12 +34,31 @@ public class Function extends Statement {
 
     Function(Term fun, Expression body) {
         super(Processor.FUNCTION, fun, body);
+        fun.setExpression(this);
+        body.setExpression(this);
         table = new HashMap<>();
     }
 
     @Override
     public Term getFunction() {
+        return getSignature();
+    }
+    
+    public Term getSignature(){
         return getArg(0).getTerm();
+    }
+    
+    @Override
+    public IDatatype getDatatypeValue(){
+        if (dt != null){
+            return dt;
+        }
+        return getFunction().getCName().getDatatypeValue();
+    }
+    
+    @Override
+    public IDatatype eval(Computer eval, fr.inria.corese.triple.function.term.Binding b, Environment env, Producer p) {
+        return getDatatypeValue();
     }
 
     @Override
@@ -46,9 +77,23 @@ public class Function extends Statement {
         }
         return null;
     }
+    
+    @Override
+    public Expression compile(ASTQuery ast){
+         Expression exp = super.compile(ast);
+         typecheck(ast);
+         if (isTrace()){
+             System.out.println(this);
+         }
+         return exp;
+    }
 
     @Override
     public StringBuffer toString(StringBuffer sb) {
+        if (getMetadata() != null){
+//            sb.append(getMetadata());
+//            sb.append(Term.NL);
+        }
         sb.append(getLabel());
         sb.append(" ");
         getFunction().toString(sb);
@@ -75,6 +120,12 @@ public class Function extends Statement {
     
     public boolean hasMetadata(int type) {
         return annot != null && annot.hasMetadata(type);
+    }
+    
+    @Override
+    public List<String> getMetadataValues(String name){
+        if (getMetadata() == null) return null;
+        return getMetadata().getValues(name);
     }
     
     void annotate(Metadata m){
@@ -193,5 +244,62 @@ public class Function extends Statement {
     public void setTable(HashMap<String, Constant> table) {
         this.table = table;
     }
+
+    /**
+     * @return the lambda
+     */
+    public boolean isLambda() {
+        return lambda;
+    }
+    
+    void defineLambda(){
+        setLambda(true);;
+        dt = DatatypeMap.createObject(getDatatypeValue().stringValue(), this);
+    }
+
+    /**
+     * @param lambda the lambda to set
+     */
+    public void setLambda(boolean lambda) {
+        this.lambda = lambda;
+    }
+    
+    /**
+     * @return the visited
+     */
+    @Override
+    public boolean isVisited() {
+        return visited;
+    }
+
+    /**
+     * @param visited the visited to set
+     */
+    @Override
+    public void setVisited(boolean visited) {
+        this.visited = visited;
+    }
+    
+    @Override
+    void visit(ExpressionVisitor v) {
+        v.visit(this);
+    }
+    
+    boolean typecheck(ASTQuery ast){
+        Term t = getSignature();
+        List<Variable> list = new ArrayList<Variable>();
+        int i = 1;
+        for (Expression var : t.getArgs()) {
+            if (list.contains(var.getVariable())){
+                ast.addError("Duplicate parameter: " + var + " in: \n" + toString());
+                ast.addFail(true);
+                return false;
+            }
+            else {
+                list.add(var.getVariable());
+            }
+        }
+        return true;
+    }   
 
 }

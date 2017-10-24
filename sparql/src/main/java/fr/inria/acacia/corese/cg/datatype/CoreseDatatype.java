@@ -22,6 +22,7 @@ import fr.inria.edelweiss.kgram.core.Mapping;
 import fr.inria.edelweiss.kgram.core.Mappings;
 import fr.inria.edelweiss.kgram.core.Query;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -60,6 +61,23 @@ public class CoreseDatatype
     @Override
     public IDatatype getDataLang() {
         return empty;
+    }
+    
+    @Override
+    public String getContent(){
+        if (getObject() == null){
+            return "";
+        }
+        return getObject().toString();
+    }
+    
+    /**
+     * Same as toString() except for Pointer that may display the content
+     * Use case: xt:display()
+     */
+    @Override
+    public IDatatype display() {
+        return this;
     }
 
     @Override
@@ -241,19 +259,21 @@ public class CoreseDatatype
     }
 
     @Override
-    public IDatatype cast(IDatatype datatype, IDatatype javaType) {       
-        return cast(datatype.getLabel(), javaType.getLabel());
+    public IDatatype cast(String datatype) {
+        String javaType = DatatypeMap.getJavaType(datatype);
+        if (javaType == null) {
+            return null;
+        }
+        return cast(datatype, javaType);
     }
-    
+        
     @Override
     public IDatatype cast(IDatatype datatype){
-        String javaType = DatatypeMap.getJavaType(datatype.getLabel());
-        if (javaType == null){return null;}
-        return cast(datatype.getLabel(), javaType);
+        return cast(datatype.getLabel());
     }
     
     IDatatype cast(String datatype, String javaType) {
-        IDatatype dt = cast(javaType);
+        IDatatype dt = caster(javaType);
         // effective for undef only :
         if (dt != null) {
             dt.setDatatype(datatype);
@@ -264,7 +284,7 @@ public class CoreseDatatype
     /**
      * cast above set the datatype uri should have datatype as extra arg
      */
-    IDatatype cast(String type) {
+    IDatatype caster(String type) {
         try {
             if (isBlank() && type.equals(Cst.jTypeString)) {
                 return CoreseDatatype.create(type, null, "", null);
@@ -313,33 +333,64 @@ public class CoreseDatatype
     }
     
     @Override
-     public List<IDatatype> getValueList() {   
+    public List<IDatatype> getValueList() {   
         if (isList()){
              return getValues();
         }
         ArrayList<IDatatype> list = new ArrayList<IDatatype>();
         if (isLoop()){
-            for (Object obj : getLoop()){
-                list.add(getValue(obj));
+            for (IDatatype dt : this){
+                if (dt != null){
+                    list.add(dt);
+                }
             }
         }
         return list;
     }
     
-    IDatatype getValue(Object value){
-        if (value instanceof IDatatype){
-            return (IDatatype) value;
+    @Override
+    public IDatatype toList(){
+        if (isList()){
+            return this;
         }
-        if (value instanceof Node){
-            return (IDatatype) ((Node) value).getDatatypeValue();
+        else {
+            return DatatypeMap.newInstance(getValueList());
         }
-        IDatatype dt = DatatypeMap.cast(value);
-        if (dt == null){
-            dt = DatatypeMap.createObject(value);
-        }
-        return dt;
     }
+    
+    @Override
+    public Iterator<IDatatype> iterator() {
+        if (isList()){
+            return getValues().iterator();
+        }
+        else if (isLoop()){
+            return loopIterator();
+        }
+        else {
+            return new ArrayList<IDatatype>(0).iterator();
+        }
+    }
+    
+    Iterator<IDatatype> loopIterator() {
+        return new Iterator<IDatatype>() {
+            final Iterator it = getLoop().iterator();
 
+            @Override
+            public boolean hasNext() {
+                return it.hasNext();
+            }
+
+            @Override
+            public IDatatype next() {
+                Object obj = it.next();
+                if (obj == null) {
+                    return null;
+                }
+                return DatatypeMap.getValue(obj);
+            }
+        };
+    }
+     
     @Override
     public Iterable getLoop() {
         return null;
@@ -533,6 +584,24 @@ public class CoreseDatatype
     @Override 
     public boolean isDate(){
         return false;
+    }
+    
+    @Override
+    public Object objectValue(){
+        switch (getCode()){
+            case INTEGER: 
+                return longValue();
+            case DOUBLE:  
+            case DECIMAL:
+                return doubleValue();
+            case FLOAT:   
+                return floatValue();
+            case BOOLEAN:
+                return booleanValue();
+                
+            default: 
+                return stringValue();
+        }
     }
 
     @Override

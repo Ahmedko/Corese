@@ -6,7 +6,7 @@
 prefix spqr: <http://ns.inria.fr/sparql-extension/spqr/>
 select 
 
-(99 as ?n)
+(9999 as ?n)
 (spqr:romain(?n) as ?r)
 (spqr:digit(?r)  as ?d)
 

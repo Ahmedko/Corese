@@ -30,7 +30,7 @@ public interface Proxy {
 	boolean isTrue(Object value);
 
 	// Query Node value (e.g. KGRAM IDatatype)  to target proxy value
-	Object getConstantValue(Object value);
+	Node getConstantValue(Node value);
         
         // return a IDatatype and store obj in it
         Object getValue(Object val, Object obj);
@@ -60,9 +60,8 @@ public interface Proxy {
 
 	// functions isURI regex
 	Object eval(Expr exp, Environment env, Producer p, Object[] args);
-        
-        Object let(Expr exp, Environment env, Producer p, Object val);
-        
+	Object eval(Expr exp, Environment env, Producer p, Object[] args, Expr def);
+                
         Object cast(Object obj, Environment env, Producer p);
 	
 	Object function(Expr exp, Environment env, Producer p);
@@ -83,4 +82,7 @@ public interface Proxy {
         Proxy getPlugin();
 
         Expr createFunction(String name, List<Object> args, Environment env);
+        
+        Expr getDefine(Expr exp, Environment env, String name, int n);
+
 }

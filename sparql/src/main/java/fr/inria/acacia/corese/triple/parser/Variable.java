@@ -1,5 +1,6 @@
 package fr.inria.acacia.corese.triple.parser;
 
+import fr.inria.acacia.corese.api.Computer;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -7,7 +8,12 @@ import fr.inria.acacia.corese.api.IDatatype;
 import fr.inria.acacia.corese.triple.api.ExpressionVisitor;
 import fr.inria.acacia.corese.triple.cst.KeywordPP;
 import fr.inria.corese.compiler.java.JavaCompiler;
+import fr.inria.corese.triple.function.term.Binding;
 import fr.inria.edelweiss.kgram.api.core.ExprType;
+import fr.inria.edelweiss.kgram.api.core.Node;
+import fr.inria.edelweiss.kgram.api.query.Environment;
+import fr.inria.edelweiss.kgram.api.query.Evaluator;
+import fr.inria.edelweiss.kgram.api.query.Producer;
 
 /**
  * <p>Title: Corese</p>
@@ -28,6 +34,7 @@ public class Variable extends Atom {
         
 	List<Variable> lVar;
         private Variable proxy;
+        private Variable variableDeclaration;
 	// var as IDatatype for comparing variables in KGRAM
 	IDatatype dt;
 	
@@ -192,13 +199,13 @@ public class Variable extends Atom {
         
         @Override
 	public int getIndex() {
-		return index ;
+            return index ;
 	}
 
 	@Override
 	public void setIndex(int n) {
-		index = n;
-	}
+            index = n;
+	}     
 	
 	// fake value in case where a variable node is used as a target value node
 	// see ProducerDefault
@@ -254,17 +261,14 @@ public class Variable extends Atom {
         }
         
        public boolean isLocal(){
-            //return index == ExprType.LOCAL;
             return type == ExprType.LOCAL;
         }
        
        public void localize(){
-          // index = ExprType.LOCAL;
            setType(ExprType.LOCAL);
        }
        
        void undef(){
-          //index = ExprType.UNDEF; 
           setType(ExprType.UNDEF);
        }
 
@@ -304,6 +308,33 @@ public class Variable extends Atom {
      */
     public void setVariableProxy(Variable var) {
         this.proxy = var;
+    }
+    
+        @Override
+    public Variable getDefinition() {
+        return getDeclaration();
+    }
+    /**
+     * @return the superVariable
+     */
+    public Variable getDeclaration() {
+        return variableDeclaration;
+    }
+    
+    
+
+    /**
+     * @param superVariable the superVariable to set
+     */
+    public void setDeclaration(Variable superVariable) {
+        this.variableDeclaration = superVariable;
+    }
+    
+    @Override
+    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p){
+        Node node = env.getNode(this);
+        if (node == null) return null;
+        return (IDatatype) node.getDatatypeValue();
     }
  
 	

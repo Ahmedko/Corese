@@ -1,5 +1,6 @@
 package fr.inria.edelweiss.kgram.core;
 
+import fr.inria.edelweiss.kgram.api.core.DatatypeValue;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,7 @@ import fr.inria.edelweiss.kgram.api.query.Environment;
 import fr.inria.edelweiss.kgram.api.query.Evaluator;
 import fr.inria.edelweiss.kgram.api.core.Pointerable;
 import fr.inria.edelweiss.kgram.api.core.TripleStore;
+import fr.inria.edelweiss.kgram.api.query.Binder;
 import fr.inria.edelweiss.kgram.api.query.Producer;
 import fr.inria.edelweiss.kgram.api.query.Result;
 import fr.inria.edelweiss.kgram.filter.Extension;
@@ -59,7 +61,7 @@ public class Mapping
     Query query;
     Map bnode;
     boolean read = false;
-    private Bind bind;
+    private Binder bind;
 
     Mapping() {
         this.qEdges = emptyEdge;;
@@ -463,7 +465,7 @@ public class Mapping
                 str += qNodes[i] + " : " + lPath[i] + "\n";
 
             } else if (e != null && e.getObject() != null) {
-                str += e.getObject() + "\n";
+                str += "\n" + e.getObject() + "\n";
             }
             i++;
         }
@@ -695,17 +697,12 @@ public class Mapping
         return values.keySet();
     }
 
-    public Object getValue(String name) {
+    public DatatypeValue getValue(String name) {
         Node n = getNode(name);
         if (n == null) {
             return null;
         }
-        return n.getValue();
-    }
-
-    @Override
-    public Object getValue(String var, int n) {
-        return getValue(var);
+        return n.getDatatypeValue();
     }
 
     public Object getValue(Node qn) {
@@ -727,9 +724,58 @@ public class Mapping
         }
         return null;
     }
+    
+    /**
+     * Use case:
+     * let (((?var, ?val)) = ?m)
+     * let ((?x, ?y) = ?m) 
+     */
+    @Override
+    public Object getValue(String var, int n) {
+        if (var == null){
+            // let (((?var, ?val)) = ?m)  -- ?m : Mapping
+            // compiled as: let (?vv = xt:get(?m, 0), (?var, ?val) = ?vv)
+            // xt:get(?m, 0) evaluated as xt:gget(?m, null, 0)
+            // hence var == null
+            return getBinding(n);
+        }
+        // let ((?x, ?y) = ?m) -- ?m : Mapping
+        return getValue(var);
+    }
 
+    List<DatatypeValue> getBinding(int n){
+        List<List<DatatypeValue>> l = getList();
+        if (n < l.size()){
+            return l.get(n);
+        }
+        return null;
+    }
+
+    /**
+     * List of variable binding
+     * @return 
+     */
     @Override
     public Iterable getLoop() {
+        return getList();
+    }
+        
+    List<List<DatatypeValue>> getList() {    
+        ArrayList<List<DatatypeValue>> list = new ArrayList();
+        int i = 0;
+        for (Node n : getQueryNodes()) {
+            Node val = getNode(i++);
+            if (val != null){
+                ArrayList<DatatypeValue> l = new ArrayList(2);
+                l.add(n.getDatatypeValue());
+                l.add(val.getDatatypeValue());
+                list.add(l);
+            }
+        }
+        return list;
+    }
+    
+    public Iterable getLoop2() {
         ArrayList<Object> list = new ArrayList();
         for (Node n : getNodes()) {
             list.add(n.getValue());
@@ -750,7 +796,7 @@ public class Mapping
     public Node[] getNodes() {
         return nodes;
     }
-
+    
     public Edge[] getQueryEdges() {
         return qEdges;
     }
@@ -1071,61 +1117,55 @@ public class Mapping
     }
 
     @Override
-    public Bind getBind() {
+    public Binder getBind() {
         return bind;
+    }
+    
+    @Override
+    public void setBind(Binder b) {
+        bind = b;
     }
 
     @Override
     public boolean hasBind() {
         return bind != null && bind.hasBind();
     }
+    
+    Binder getCreateBind(){
+        if (bind == null) {
+            bind = Bind.create();
+        }
+        return bind;
+    }
 
     @Override
     public void bind(Expr exp, Expr var, Node value) {
-        if (bind == null) {
-            bind = new Bind();
-        }
-        bind.bind(exp, var, value);
+        getCreateBind().bind(exp, var, value);
     }
 
     @Override
     public void set(Expr exp, Expr var, Node value) {
-        if (bind == null) {
-            bind = new Bind();
-        }
-        bind.set(exp, var, value);
+        getCreateBind().set(exp, var, value);
     }
 
     @Override
-    public void set(Expr exp, List<Expr> lvar, Object[] value) {
-        if (bind == null) {
-            bind = new Bind();
-        }
-        bind.set(exp, lvar, value);
+    public void set(Expr exp, List<Expr> lvar, Node[] value) {
+        getCreateBind().set(exp, lvar, value);
     }
 
     @Override
     public Node get(Expr var) {
-        if (bind == null) {
-            bind = new Bind();
-        }
-        return bind.get(var);
+        return getCreateBind().get(var);
     }
 
     @Override
-    public void unset(Expr exp, Expr var) {
-        if (bind == null) {
-            bind = new Bind();
-        }
-        bind.unset(exp, var);
+    public void unset(Expr exp, Expr var, Node value) {
+        getCreateBind().unset(exp, var, value);
     }
 
     @Override
     public void unset(Expr exp, List<Expr> lvar) {
-        if (bind == null) {
-            bind = new Bind();
-        }
-        bind.unset(exp, lvar);
+        getCreateBind().unset(exp, lvar);
     }
 
     @Override

@@ -32,7 +32,8 @@ public interface Environment {
 	 */
 	Query getQuery();
         
-        Bind getBind();
+        Binder getBind();
+        void setBind(Binder b);
         
         boolean hasBind();
 	
@@ -159,11 +160,11 @@ public interface Environment {
         // set: let (?x as ?y){}
         void set(Expr exp, Expr var, Node value);
         
-        void set(Expr exp, List<Expr> var, Object[] value);
+        void set(Expr exp, List<Expr> var, Node[] value);
        
         Node get(Expr var);
         
-        void unset(Expr exp, Expr var);
+        void unset(Expr exp, Expr var, Node value);
         
         void unset(Expr exp, List<Expr> var);
                 

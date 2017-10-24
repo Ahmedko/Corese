@@ -17,9 +17,9 @@ import fr.inria.acacia.corese.triple.parser.Dataset;
 import fr.inria.acacia.corese.triple.parser.NSManager;
 import fr.inria.acacia.corese.triple.parser.Processor;
 import fr.inria.acacia.corese.triple.parser.Term;
+import fr.inria.edelweiss.kgenv.api.ProxyPlugin;
 import fr.inria.edelweiss.kgram.api.core.Edge;
 import fr.inria.edelweiss.kgram.api.core.Entity;
-import fr.inria.edelweiss.kgram.api.core.ExpType;
 import fr.inria.edelweiss.kgram.api.core.Expr;
 import fr.inria.edelweiss.kgram.api.core.ExprLabel;
 import fr.inria.edelweiss.kgram.api.core.ExprType;
@@ -29,7 +29,9 @@ import fr.inria.edelweiss.kgram.api.query.Environment;
 import fr.inria.edelweiss.kgram.api.query.Evaluator;
 import fr.inria.edelweiss.kgram.api.query.Producer;
 import fr.inria.edelweiss.kgram.core.Eval;
+import fr.inria.edelweiss.kgram.core.Mappings;
 import fr.inria.edelweiss.kgram.core.Memory;
+import fr.inria.edelweiss.kgram.core.PointerObject;
 import fr.inria.edelweiss.kgram.core.Query;
 import fr.inria.edelweiss.kgram.event.EvalListener;
 import fr.inria.edelweiss.kgram.event.Event;
@@ -59,8 +61,11 @@ public class ProxyImpl implements Proxy, ExprType {
     static final String UTF8 = "UTF-8";
     public static final String RDFNS = NSManager.RDF; //"http://www.w3.org/1999/02/22-rdf-syntax-ns#";
     public static final String RDFTYPE = RDFNS + "type";
+    private static final String USER_DISPLAY = NSManager.USER+"display";
+    static final String alpha = "abcdefghijklmnoprstuvwxyz";
+    static final String ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     public static int count = 0;
-    Proxy plugin;
+    ProxyPlugin plugin;
     Custom custom;
     SQLFun sql;
     Evaluator eval;
@@ -84,6 +89,9 @@ public class ProxyImpl implements Proxy, ExprType {
     @Override
     public void setEvaluator(Evaluator ev) {
         eval = ev;
+        if (plugin != null) {
+            plugin.setEvaluator(ev);
+        }
     }
 
     @Override
@@ -94,11 +102,15 @@ public class ProxyImpl implements Proxy, ExprType {
     public Eval getEval(){
         return (Eval) getEvaluator().getEval();
     }
-     
-    @Override
-    public void setPlugin(Proxy p) {
+        
+    public void setPlugin(ProxyPlugin p) {
         plugin = p;
         plugin.setEvaluator(eval);
+    }
+    
+    @Override
+    public void setPlugin(Proxy p) {
+        
     }
 
     @Override
@@ -171,6 +183,12 @@ public class ProxyImpl implements Proxy, ExprType {
           return args;
      }
      
+      IDatatype[] array(IDatatype o1){
+          IDatatype[] args = new IDatatype[1];
+          args[0] = o1;
+          return args;
+     }
+     
      // TODO: check ExprLabel.COMPARE
     @Override
      public int compare(Environment env, Producer p, Node o1, Node o2) {
@@ -195,7 +213,7 @@ public class ProxyImpl implements Proxy, ExprType {
      
 
     @Override
-    public Object term(Expr exp, Environment env, Producer p, Object o1, Object o2) {
+    public IDatatype term(Expr exp, Environment env, Producer p, Object o1, Object o2) {
         IDatatype dt1 = (IDatatype) o1;
         IDatatype dt2 = (IDatatype) o2;
         
@@ -206,18 +224,19 @@ public class ProxyImpl implements Proxy, ExprType {
                 // the extended datatype
                 Expr ee = eval.getDefine(env, label(exp, d1), exp.arity()); 
                 if (ee != null){
-                   return  eval.eval(exp, env, p, array(dt1, dt2), ee);
+                   return  (IDatatype) eval.eval(exp, env, p, array(dt1, dt2), ee);
                 }                
             }
         }
 
-        if (dt1.isBlank() && dt2.isBlank() && ! exp.isFuncall()) {
-            // exclude funcall kg:equal() to prevent a loop
-            Expr ee = eval.getDefine(env, label(exp, ExpType.BNODE), exp.arity());
-            if (ee != null) {
-                return eval.eval(exp, env, p, array(dt1, dt2), ee);
-            }
-        }
+        // TODO: this should depend on a boolean bnodeExtension
+//        if (dt1.isBlank() && dt2.isBlank() && ! exp.isFuncall()) {
+//            // exclude funcall kg:equal() to prevent a loop
+//            Expr ee = eval.getDefine(env, label(exp, ExpType.BNODE), exp.arity());
+//            if (ee != null) {
+//                return eval.eval(exp, env, p, array(dt1, dt2), ee);
+//            }
+//        }
         
         boolean b = true;
 
@@ -284,7 +303,7 @@ public class ProxyImpl implements Proxy, ExprType {
     }
     
     @Override
-    public Object function(Expr exp, Environment env, Producer p) {
+    public IDatatype function(Expr exp, Environment env, Producer p) {
 
         switch (exp.oper()) {
 
@@ -319,14 +338,13 @@ public class ProxyImpl implements Proxy, ExprType {
                 
             case SEQUENCE:
                 return sequence(exp, env, p);
-                
-            case XT_DISPLAY:
-                System.out.println();
-                return TRUE;
-                
+                              
             case XT_MAPPING:
                 // use case: aggregate(xt:mapping())
                 return DatatypeMap.createObject(env);
+                
+            case XT_GRAPH:
+                return DatatypeMap.createObject(p.getGraph());
                 
             case XT_QUERY:
                 return DatatypeMap.createObject(env.getQuery());
@@ -347,7 +365,7 @@ public class ProxyImpl implements Proxy, ExprType {
 
             default:
                 if (plugin != null) {
-                    return plugin.function(exp, env, p);
+                    return  plugin.function(exp, env, p);
                 }
         }
 
@@ -381,7 +399,7 @@ public class ProxyImpl implements Proxy, ExprType {
     }
 
     @Override
-    public Object function(Expr exp, Environment env, Producer p, Object o1) {
+    public IDatatype function(Expr exp, Environment env, Producer p, Object o1) {
 
         IDatatype dt = (IDatatype) o1;
 
@@ -465,6 +483,9 @@ public class ProxyImpl implements Proxy, ExprType {
 
             case DATATYPE:
                 return datatype(dt);
+                
+             case CAST: // xsd:string(?x)
+                return cast(dt, exp.getLabel());        
 
             case DISPLAY:
                return display(exp, dt, null);
@@ -489,42 +510,125 @@ public class ProxyImpl implements Proxy, ExprType {
                                
             case XT_REVERSE:
                  return reverse(dt);
+                 
+            case XT_TOLIST:
+                return dt.toList();
                 
             case XT_SORT:
                 return sort(dt);
                 
+            case XT_CONTENT: 
+                return content(dt);
+                
+            case XT_DATATYPE:
+                return xt_datatype(dt);
+                
+            case XT_KIND:
+                return xt_kind(dt);
+                                
             case XT_REJECT:
                 return reject(env, dt); 
-                
-            case XT_DISPLAY:
-                display(dt);
-                System.out.println();
-                return TRUE;
-                    
-                                                               
+                                                                                                 
             default:
                 if (plugin != null) {
-                    return plugin.function(exp, env, p, o1);
+                    return plugin.function(exp, env, p, dt);
                 }
 
         }
         return null;
     }
     
+  
+    IDatatype xt_display(Environment env, Producer p, IDatatype[] param) {
+       return xt_display(env, p, param, true, true);
+    }
+    
+    IDatatype xt_display(Environment env, Producer p, IDatatype[] param, boolean turtle, boolean content) {
+        for (IDatatype dt : param) {
+            xt_display(env, p, dt, turtle, content);
+            System.out.print(" ");
+        }
+        System.out.println();
+        return TRUE;
+    }
+    
+    IDatatype xt_display(Environment env, Producer p, IDatatype dt){  
+        return xt_display(env, p, dt, true, true);
+    }      
+
+    IDatatype xt_display(Environment env, Producer p, IDatatype dt, boolean turtle, boolean content) {
+        IDatatype res = method(USER_DISPLAY, null, array(dt), env, p);
+        if (res == null) {
+            res = dt.display();
+        } 
+        if (turtle){
+            System.out.println(res);
+        }
+        else {
+            System.out.println(res.stringValue());
+        }
+        return dt;
+    }
+    
+   
+    // skip n first elements
+    IDatatype[] copy(IDatatype [] param, int n){
+        IDatatype [] arg = new IDatatype [param.length - n];
+        System.arraycopy(param, n, arg, 0, arg.length);
+        return arg;
+    }
+    
+         
+    IDatatype method(IDatatype name, IDatatype[] param, Environment env, Producer p) {
+        return method(name.stringValue(), null, param, env, p);
+    }
+          
+     /**
+     * Try to execute a method name in the namespace of the generalized datatype URI
+     * http://ns.inria.fr/sparql-datatype/triple#display(?x)
+     * URI:   dt:uri#name
+     * bnode: dt:bnode#name
+     * literal: dt:datatype#name or dt:literal#name
+     */   
+    IDatatype method(String name, IDatatype type, IDatatype[] param, Environment env, Producer p) {   
+        if (env == null){
+            return null;
+        }       
+        Expr exp = eval.getDefineMethod(env, name, type, param);
+        if (exp == null) {
+            return null;
+        }
+        else {
+           return (IDatatype) eval.eval(exp.getFunction(), env, p, param, exp); 
+        }       
+    }
+    
+              
+    IDatatype xt_datatype(IDatatype dt){
+        if (dt.isLiteral()) return dt.getDatatype();
+        return xt_kind(dt);
+    }
+          
+    IDatatype xt_kind(IDatatype dt){
+        if (dt.isLiteral()) return DatatypeMap.LITERAL_DATATYPE;
+        if (dt.isURI()) return DatatypeMap.URI_DATATYPE;
+        return DatatypeMap.BNODE_DATATYPE;
+    }
+        
+    IDatatype content(IDatatype dt){
+        if (dt.getObject() != null){
+            return DatatypeMap.newInstance(dt.getContent());
+        }
+        return dt;
+    }
+        
     public IDatatype display(IDatatype dt1, IDatatype dt2) {
         System.out.println(dt1 + " " + dt2);
         return TRUE;
     }
-
-    
-    public IDatatype display(IDatatype dt){        
-        if (dt.getObject() != null){
-            System.out.print(dt.getObject());
-        }
-        else {
-            System.out.print(dt);
-        }
-        return dt;
+      
+    public IDatatype display(IDatatype dt) {
+        return xt_display(null, null, dt);
     }
        
     IDatatype display(Expr exp, IDatatype dt, IDatatype arg) {
@@ -545,7 +649,7 @@ public class ProxyImpl implements Proxy, ExprType {
     }
 
     @Override
-    public Object function(Expr exp, Environment env, Producer p, Object o1, Object o2) {
+    public IDatatype function(Expr exp, Environment env, Producer p, Object o1, Object o2) {
         IDatatype dt1 = (IDatatype) o1;
         IDatatype dt2 = (IDatatype) o2;
         boolean b;
@@ -608,6 +712,10 @@ public class ProxyImpl implements Proxy, ExprType {
             case STRLANG:
                 return strlang(dt1, dt2);
                 
+            case CAST: // cast(?x, xsd:string)
+                //return cast(dt1, dt2);    
+                return cast(dt1, exp.getLabel());    
+                
             case REGEX: 
                return regex(exp, dt1, dt2, null);
             
@@ -646,45 +754,20 @@ public class ProxyImpl implements Proxy, ExprType {
                 
             case XT_GET:
                 return get(dt1, dt2);
-                
-            case XT_DISPLAY:
-                display(dt1);
-                System.out.print(" ");
-                display(dt2);
-                System.out.println();
-                return TRUE;    
-                
+                                               
             default:
                 if (plugin != null) {
-                    return plugin.function(exp, env, p, o1, o2);
+                    return  plugin.function(exp, env, p, dt1, dt2);
                 }
-
-
         }
 
         return null;
     }
 
     @Override
-    public Object eval(Expr exp, Environment env, Producer p, Object[] args) {
+    public IDatatype eval(Expr exp, Environment env, Producer p, Object[] args) {
         IDatatype[] param =  (IDatatype[]) args;
-        IDatatype val = (param.length>0) ?  param[0] : null;
         switch (exp.oper()) {
-                                                
-            case MAPANY:                
-            case MAPEVERY:
-                 return anyevery(exp, env, p, param);
-                
-            case MAP:
-            case MAPLIST:
-            case MAPMERGE:
-            case MAPAPPEND:
-            case MAPFIND:
-            case MAPFINDLIST:
-                return map(exp, env, p, param);
-                               
-            case APPLY:
-                return apply(exp, env, p, val);
 
             case EXTERNAL:
                 return external(exp, env, p, param);                
@@ -695,7 +778,7 @@ public class ProxyImpl implements Proxy, ExprType {
             case KGRAM:
             case EXTERN:
             case PROCESS:
-                return plugin.eval(exp, env, p, param);
+                return (IDatatype) plugin.eval(exp, env, p, param);
 
             case DEBUG:
                 if (el == null) {
@@ -703,7 +786,7 @@ public class ProxyImpl implements Proxy, ExprType {
                     env.getEventManager().addEventListener(el);
                 }
                 int i = 0;
-                for (Object arg : param) {
+                for (IDatatype arg : param) {
                     Event e = EventImpl.create(Event.FILTER, exp.getExp(i++), arg);
                     env.getEventManager().send(e);
                 }
@@ -713,25 +796,45 @@ public class ProxyImpl implements Proxy, ExprType {
                 return and(param); 
                 
             case XT_SET: 
-                return DatatypeMap.set(param[0], param[1], param[2]);
+                return set(param[0], param[1], param[2]);
+                
+            case XT_ADD: 
+                return add(param[0], param[1], param[2]); 
+                
+            case XT_SWAP: 
+                return swap(param[0], param[1], param[2]); 
+                
+            case IOTA:
+                return iota(param);
+                
+            case XT_ITERATE:
+                return iterate(param);    
                 
             case XT_GEN_GET:
                 return gget(param[0], param[1], param[2]);
                                                
             case LIST:
-                return DatatypeMap.list(param);                
-                
+                return DatatypeMap.list(param);  
+                                           
             case CONCAT:
             case STL_CONCAT:
             //case XT_CONCAT:            
                 return concat(exp, env, p, param);
                 
             case XT_DISPLAY:
-                for (IDatatype dt : param){
-                    display(dt); System.out.println(" ");
-                }
-                System.out.println();
-                return TRUE;       
+                // turtle + content if gdisplay
+               return xt_display(env, p, param, true, (!exp.getLabel().equals(Processor.XT_DISPLAY))); 
+                            
+            case XT_PRINT:
+                // string + content if gprint
+                return xt_display(env, p, param, false, (!exp.getLabel().equals(Processor.XT_PRINT)));
+                
+            case XT_METHOD:
+                return method(param[0].stringValue(), null, copy(param, 1), env, p) ;  
+                
+            case XT_METHOD_TYPE:
+                return method(param[0].stringValue(), param[1], copy(param, 2), env, p) ;  
+                    
             
         }
 
@@ -753,10 +856,6 @@ public class ProxyImpl implements Proxy, ExprType {
             case SUBSTR:               
                 return substr(dt, dt1, (param.length > 2) ? param[2] : null);
 
-            case CAST: // cast(?x, xsd:string, CoreseString)
-                return cast(dt, dt1, param[2]);
-
-
             case STRREPLACE:
 
                 if (param.length < 3) {
@@ -769,21 +868,21 @@ public class ProxyImpl implements Proxy, ExprType {
                 
                 return strreplace(exp, dt, dt1, param[2], (param.length == 4) ? param[3] : null);
 
-
-            case SQL:
-                // return ResultSet
-                return sql(exp, env, param);
+                //TODO: fix it, return IDatatype and check
+//            case SQL:
+//                // return ResultSet
+//                return sql(exp, env, param);
 
             default:
                 if (plugin != null) {
-                    return plugin.eval(exp, env, p, param);
+                    return  plugin.eval(exp, env, p, param);
                 }
         }
 
         return null;
     }
     
-    Object external(Expr exp, Environment env, Producer p, IDatatype[] param) {
+    IDatatype external(Expr exp, Environment env, Producer p, IDatatype[] param) {
         // user defined function with prefix/namespace
         // function://package.className
         Processor proc = getProcessor(exp);
@@ -802,7 +901,7 @@ public class ProxyImpl implements Proxy, ExprType {
      /**
 	 * Eval external method
 	 */
-    public Object eval(Processor proc, Environment env, IDatatype[] args, Producer p) {
+    public IDatatype eval(Processor proc, Environment env, IDatatype[] args, Producer p) {
         String name = proc.getMethod().getName();
         try {
             Object obj = proc.getProcessor();
@@ -814,7 +913,7 @@ public class ProxyImpl implements Proxy, ExprType {
                 pi.setEnvironment(env);
                 plugin.setProducer(p);
             }
-            return proc.getMethod().invoke(obj, args);
+            return (IDatatype) proc.getMethod().invoke(obj, args);
         } catch (IllegalArgumentException e) {
            trace(e, "eval", name, args);
         } catch (IllegalAccessException e) {
@@ -1026,7 +1125,16 @@ public class ProxyImpl implements Proxy, ExprType {
     }
     
     IDatatype cast(IDatatype dt, IDatatype dt1, IDatatype dt2){
-        return dt.cast(dt1, dt2);
+        //return dt.cast(dt1, dt2);
+        return dt.cast(dt1);
+    }
+    
+    IDatatype cast(IDatatype dt, IDatatype dt1){
+        return dt.cast(dt1);
+    }
+    
+    IDatatype cast(IDatatype dt, String dt1){
+        return dt.cast(dt1);
     }
     
     public IDatatype substr(IDatatype dt, IDatatype ind) {
@@ -1360,7 +1468,7 @@ public class ProxyImpl implements Proxy, ExprType {
         
         return result(env, sb, isString, (ok && lang != null)?lang:null, isSTLConcat);
     }
-    
+     
     boolean isFuture(Expr e){
         if  (e.oper() == STL_NUMBER 
                 //|| e.oper() == STL_FUTURE
@@ -1389,7 +1497,7 @@ public class ProxyImpl implements Proxy, ExprType {
             return DatatypeMap.createLiteral(sb.toString(), null, lang);
         } else if (isString) {
             if (isSTL){
-                return (IDatatype) plugin.getBufferedValue(sb, env);
+                return  plugin.getBufferedValue(sb, env);
             }
             else {
                 return DatatypeMap.newStringBuilder(sb);
@@ -1570,14 +1678,14 @@ public class ProxyImpl implements Proxy, ExprType {
      * sum(?x)
      */
     @Override
-    public Object aggregate(Expr exp, Environment env, Producer p, Node qNode) {
+    public IDatatype aggregate(Expr exp, Environment env, Producer p, Node qNode) {
         //exp = decode(exp, env, p);
         Walker walk = new Walker(exp, qNode, this, env, p);
 
         // apply the aggregate on current group Mapping, 
         env.aggregate(walk, p, exp.getFilter());
 
-        Object res = walk.getResult(env, p);
+        IDatatype res = (IDatatype) walk.getResult(env, p);
         return res;
     }
     
@@ -1595,11 +1703,17 @@ public class ProxyImpl implements Proxy, ExprType {
      * use case: ?y in not bound in let (?y) = select where  
      * */
     @Override
-    public Object getConstantValue(Object value) {
+    public IDatatype getConstantValue(Node value) {
+        if (value == null){
+            // xt:gget() argument evaluation fail ->  do not fail, return UNDEF 
+            return UNDEF;
+        }
         if (value == UNDEF){
+            // let (var = UNDEF) body : do not fail, do not bind var, 
+            // eval body with var unbound, can be trapped with if(bound(var)
             return null;
         }
-        return value;
+        return (IDatatype) value.getDatatypeValue();
     }
 
     IDatatype pathNode(Environment env) {
@@ -1847,6 +1961,11 @@ public class ProxyImpl implements Proxy, ExprType {
     public Expr createFunction(String name, List<Object> args, Environment env) {
         return null;    
     }
+    
+    @Override
+    public Expr getDefine(Expr exp, Environment env, String name, int n){
+        return plugin.getDefine(exp, env, name, n);
+    }
 
     @Override
     public void start(Producer p, Environment env) {
@@ -1887,12 +2006,7 @@ public class ProxyImpl implements Proxy, ExprType {
     }
 
      /**
-      * for (var in list) { exp }
-      * loop = for(var, list, exp)
-      * @param exp
-      * @param env
-      * @param p
-      * @return 
+      * loop: for (var in list) { exp }
       */
     IDatatype loop(Expr loop, Environment env, Producer p){
         IDatatype list = (IDatatype) eval.eval(loop.getDefinition(), env, p);
@@ -1900,41 +2014,46 @@ public class ProxyImpl implements Proxy, ExprType {
             return null;
         }
         if (list.isList()){
+            env.set(loop, loop.getVariable(), TRUE);
             for (IDatatype dt : list.getValues()){           
-                IDatatype res = let(loop.getBody(), loop.getVariable(), dt, env, p);
+                IDatatype res = step(loop, env, p, dt);
                 if (isReturn(res)){
+                    env.unset(loop, loop.getVariable(), dt);            
                     return res;
                 }
             }
+            env.unset(loop, loop.getVariable(), TRUE);            
         }
         else { 
-            for (Object obj : getValues(list)){ 
-                IDatatype res = let(loop.getBody(), loop.getVariable(), (IDatatype) p.getValue(obj), env, p);               
+            env.set(loop, loop.getVariable(), TRUE);
+            for (IDatatype dt : list) { 
+                IDatatype res = step(loop, env, p, dt);               
                 if (isReturn(res)){
+                    env.unset(loop, loop.getVariable(), dt);            
                     return res;
                 }
             }
+            env.unset(loop, loop.getVariable(), TRUE);            
         }
         return TRUE;
+    }
+    
+     /**
+     * for (var = value) { body }
+     * + see above
+     */
+    IDatatype step(Expr loop, Environment env, Producer p, IDatatype value){
+        //env.set(loop, loop.getVariable(), value);
+        env.bind(loop, loop.getVariable(), value);
+        return (IDatatype) eval.eval(loop.getBody(), env, p);
+        //env.unset(loop, loop.getVariable());
     }
     
     
     public IDatatype list(IDatatype... ldt){
         return DatatypeMap.newList(ldt);
     } 
-    
-    
-     /**
-      * Loopable: Mappings Mapping Edge
-      * iterator for (var in exp){}
-      * */
-    public Iterable<Object> getValues(IDatatype dt) {
-        if (dt.isLoop()){
-            return dt.getLoop();
-        }
-        return new ArrayList<Object>(0);
-    }
-    
+   
       
      /**
       * map (xt:fun, ?x, ?l)
@@ -1946,34 +2065,60 @@ public class ProxyImpl implements Proxy, ExprType {
       * TODO: when getLoop() it works with only one loop
       * @return 
       */
-    private IDatatype map(Expr exp, Environment env, Producer p, IDatatype[] param) {
-        boolean maplist   = exp.oper() == MAPLIST; 
-        boolean mapmerge  = exp.oper() == MAPMERGE; 
-        boolean mapappend  = exp.oper() == MAPAPPEND; 
+    
+    
+    @Override
+    public IDatatype eval(Expr exp, Environment env, Producer p, Object[] oparam, Expr function) {
+        IDatatype[] param = (IDatatype[]) oparam;
+        switch (exp.oper()){
+            case ExprType.REDUCE: 
+                if (param.length == 0) return null;
+                return reduce(exp, env, p, param[0], function);
+            case ExprType.MAPEVERY:
+            case ExprType.MAPANY:
+                return anyevery(exp, env, p, param, function);
+                
+            default:
+                return map(exp, env, p, param, function);
+        }
+    }
+    
+    
+    IDatatype map(Expr exp, Environment env, Producer p, IDatatype[] param, Expr function) {
+        boolean maplist     = exp.oper() == MAPLIST; 
+        boolean mapmerge    = exp.oper() == MAPMERGE; 
+        boolean mapappend   = exp.oper() == MAPAPPEND; 
         boolean mapfindelem = exp.oper() == MAPFIND;
         boolean mapfindlist = exp.oper() == MAPFINDLIST;
-        boolean mapfind = mapfindelem || mapfindlist;
-        boolean hasList = maplist || mapmerge || mapappend;
+        boolean mapfind     = mapfindelem || mapfindlist;
+        boolean hasList     = maplist || mapmerge || mapappend;
 
         IDatatype list = null;
         IDatatype ldt = null;
-        Iterator loop = null ;
+        Iterator<IDatatype> loop = null ;
         boolean isList = false, isLoop = false;
         
+        int k = 0;
         for (IDatatype dt : param){  
-            if (dt.isList()){
+            if (dt.isList() && ! isList && ! isLoop){
                 isList = true;
                 list = dt;
-                break;
             }
             else if (dt.isLoop()) {
-               isLoop = true;
-               ldt = dt; 
-               loop = ldt.getLoop().iterator();
-               break;
+                if (! isList && ! isLoop) {
+                    isLoop = true;
+                    ldt = dt;
+                    loop = ldt.iterator();
+                }
+                else {
+                    // list + loop || loop + loop
+                    // loop.toList()
+                    param[k] = dt.toList();
+                }
             }
-        } 
-        
+            
+            k++;
+        }               
         if (list == null && ldt == null){
             return null;
         }
@@ -1987,7 +2132,12 @@ public class ProxyImpl implements Proxy, ExprType {
             
             for (int j = 0; j<value.length; j++){
                 IDatatype dt = param[j];
-                if (dt.isList()){
+                if (dt.isList()){                   
+                    /**
+                     * if list size is <= i,  focus on last element of the list
+                     * use case: maplist(?fun, ?list, xt:list(?lst))
+                     * The second ?lst argument is itself a list and we do not want to iterate this one
+                     */  
                     value[j] = (i < dt.size()) ? dt.get(i) : dt.get(dt.size()-1);
                     if (mapfind && elem == null){
                         elem = value[j];
@@ -1996,7 +2146,7 @@ public class ProxyImpl implements Proxy, ExprType {
                 else if (isLoop && dt.isLoop()){
                     // TODO: track several dt Loop
                     if (loop.hasNext()){
-                       value[j] = (IDatatype) p.getValue(loop.next());
+                       value[j] = loop.next(); 
                        if (mapfind && elem == null){
                          elem = value[j];
                        }
@@ -2010,7 +2160,7 @@ public class ProxyImpl implements Proxy, ExprType {
                 }
             }
 
-            IDatatype val =  let(exp.getExp(0), env, p, value);
+            IDatatype val =  call(function, env, p, value);
 
             if (val == null){
                 return null;
@@ -2082,26 +2232,36 @@ public class ProxyImpl implements Proxy, ExprType {
      * error follow SPARQ semantics of OR (any) AND (every)
      * @return 
      */
-    private IDatatype anyevery(Expr exp, Environment env, Producer p, IDatatype[] param) {
+    private IDatatype anyevery(Expr exp, Environment env, Producer p, IDatatype[] param, Expr function) {
         boolean every = exp.oper() == MAPEVERY;       
         boolean any   = exp.oper() == MAPANY;       
         IDatatype list = null; 
         IDatatype ldt = null;
-        Iterator loop = null ;
-        boolean isList = false;
+        Iterator<IDatatype> loop = null ;
+        boolean isList = false, isLoop = false;
         
-        for (IDatatype dt : param){   
-            if (dt.isList()){
+        
+        int k = 0;
+        for (IDatatype dt : param){  
+            if (dt.isList() && ! isList && ! isLoop){
                 isList = true;
                 list = dt;
-                break;
             }
             else if (dt.isLoop()) {
-               ldt = dt; 
-               loop = ldt.getLoop().iterator();
-               break;
+                if (! isList && ! isLoop) {
+                    isLoop = true;
+                    ldt = dt;
+                    loop = ldt.iterator();
+                }
+                else {
+                    // list + loop || loop + loop
+                    // snd_loop.toList()
+                    param[k] = dt.toList();
+                }
             }
-        }               
+            
+            k++;
+        }         
         if (list == null && ldt == null){
             return null;
         }
@@ -2114,10 +2274,10 @@ public class ProxyImpl implements Proxy, ExprType {
                 if (dt.isList()){
                     value[j] = (i < dt.size()) ? dt.get(i) : dt.get(dt.size()-1);  
                 }
-                else if (dt.isLoop()){
+                else if (isLoop && dt.isLoop()){
                     if (loop.hasNext()){
                        // TODO:  track the case with several dt loop
-                       value[j] = (IDatatype) p.getValue(loop.next());
+                       value[j] = loop.next(); //(IDatatype) p.getValue(loop.next());
                     }
                     else {
                         return null;
@@ -2128,7 +2288,7 @@ public class ProxyImpl implements Proxy, ExprType {
                 }
             }
             
-            IDatatype res =  let(exp.getExp(0), env, p, value);                   
+            IDatatype res =  call(function, env, p, value);                   
             if (res == null){
                 error = true;                
             }
@@ -2153,26 +2313,24 @@ public class ProxyImpl implements Proxy, ExprType {
     }
        
     /**
-     * apply(kg:plus, ?list)   
+     * reduce(kg:plus, ?list)   
      * @return 
      */
-    private IDatatype apply(Expr exp, Environment env, Producer p, IDatatype dt) {
+    private IDatatype reduce(Expr exp, Environment env, Producer p, IDatatype dt, Expr function) {
         if (! dt.isList()) {
             return null;
         }
-        Expr fun = exp.getExp(0);
-        //Expr fun = getEvaluator().getDefine(exp.getExp(0), env, p, 2).getFunction();
         List<IDatatype> list = dt.getValues();
         if (list.isEmpty()){
-            return neutral(fun, dt);
+            return neutral(function, dt);
         }
         IDatatype[] value = new IDatatype[2];
         IDatatype res = list.get(0);
         value[0] = res;
         
         for (int i = 1; i < list.size(); i++) {            
-            value[1] = list.get(i);            
-            res =  let(fun, env, p, value);   
+            value[1] = list.get(i);  
+            res =  call(function, env, p, value);   
             if (res == null) {
                return error();
             }
@@ -2206,33 +2364,15 @@ public class ProxyImpl implements Proxy, ExprType {
         }
     }
          
-     /**
-     * exp = xt:fun(?x)
+    
+    /**
+     * map(fun, list)
+     * reduce(fun, list)
      */
-    @Override
-    public IDatatype let(Expr exp, Environment env, Producer p, Object val) {
-        return let(exp, exp.getExp(0), (IDatatype) val, env, p);
+    private IDatatype call(Expr function, Environment env, Producer p, IDatatype[] values) {
+       return (IDatatype) eval.eval(function.getFunction(), env, p, values, function);
     }
-    
-    IDatatype let(Expr exp, Expr var, IDatatype value, Environment env, Producer p){
-        env.set(exp, var, value);
-        Object res = eval.eval(exp, env, p);
-        env.unset(exp, var);
-        return (IDatatype) res;
-    }
-    
-    private IDatatype let(Expr exp, Environment env, Producer p, IDatatype[] values) {
-        int i = 0;
-        for (Expr var : exp.getExpList()){        
-            env.set(exp, var, values[i++]);
-        }
-        Object res = eval.eval(exp, env, p);
-        for (Expr var : exp.getExpList()){        
-            env.unset(exp, var);
-        }        
-        return (IDatatype) res;
-    }
-      
+         
      public IDatatype or(IDatatype dt1, IDatatype dt2) {
         boolean e1 = error(dt1);
         boolean e2 = error(dt2);
@@ -2330,8 +2470,20 @@ public class ProxyImpl implements Proxy, ExprType {
         return DatatypeMap.cons(dt1, dt2);
     }
     
-    public IDatatype add(IDatatype dt1, IDatatype dt2){
-        return DatatypeMap.add(dt1, dt2);
+    public IDatatype add(IDatatype dt, IDatatype dtlist){
+        return DatatypeMap.add(dt, dtlist);
+    }
+    
+    public IDatatype add(IDatatype dt, IDatatype dtlist, IDatatype dtind){
+        return DatatypeMap.add(dt, dtlist, dtind);
+    }
+    
+    public IDatatype swap(IDatatype dt, IDatatype dtlist, IDatatype dtind){
+        return DatatypeMap.swap(dt, dtlist, dtind);
+    }
+    
+    public IDatatype set(IDatatype dt1, IDatatype dtind, IDatatype dtval){
+        return DatatypeMap.set(dt1, dtind, dtval);
     }
     
     public IDatatype append(IDatatype dt1, IDatatype dt2){
@@ -2342,8 +2494,104 @@ public class ProxyImpl implements Proxy, ExprType {
         return DatatypeMap.merge(dt1, dt2);
     }
     
-     public IDatatype merge(IDatatype dt){
+    public IDatatype merge(IDatatype dt){
         return DatatypeMap.merge(dt);
+    }
+    
+    public IDatatype iota(IDatatype... args){
+        IDatatype dt = args[0];
+        if (dt.isNumber()){
+            return iotaNumber(args);
+        }
+        return iotaString(args);
+    }
+    
+    IDatatype iotaNumber(IDatatype[] args){
+        int start = 1;
+        int end = 1;
+        
+        if (args.length > 1){
+            start = args[0].intValue();
+            end =   args[1].intValue();
+        }
+        else {
+            end =    args[0].intValue();
+        }
+        if (end < start){
+            return DatatypeMap.createList();
+        }
+        
+        int step = 1;
+        if (args.length == 3){
+            step = args[2].intValue();
+        }
+        int length = (end - start + step) / step;
+        ArrayList<IDatatype> ldt = new ArrayList<IDatatype>(length);
+        
+        for (int i=0; i<length; i++){
+            ldt.add(DatatypeMap.newInstance(start));
+            start += step;
+        }
+        IDatatype dt = DatatypeMap.createList(ldt);
+        return dt;
+    }
+    
+    IDatatype iotaString(IDatatype[] args){
+        String fst =  args[0].stringValue();
+        String snd = args[1].stringValue();
+        int step = 1;
+        if (args.length == 3){
+            step =  args[2].intValue();
+        }               
+        String str = alpha;
+        int start = str.indexOf(fst);
+        int end   = str.indexOf(snd);
+        if (start == -1){
+            str = ALPHA;
+            start = str.indexOf(fst);
+            end   = str.indexOf(snd);
+        }
+        if (start == -1 || end == -1){
+            return null;
+        }
+       
+        
+        int length = (end - start + step) / step;
+        ArrayList<IDatatype> ldt = new ArrayList<IDatatype>(length);
+        
+        for (int i=0; i<length; i++){
+            ldt.add(DatatypeMap.newInstance(str.substring(start, start+1)));
+            start += step;
+        }
+        IDatatype dt = DatatypeMap.createList(ldt);
+        return dt;
+    }
+    
+    
+      IDatatype iterate(IDatatype... args){
+        int start = 0;
+        int end = 1;
+        
+        if (args.length > 1){
+            start = args[0].intValue();
+            end =   args[1].intValue();
+        }
+        else {
+            end =   args[0].intValue();
+        }
+        
+        int step = 1;
+        
+        if (end < start){
+            step = -1;
+        }
+        
+        if (args.length == 3){
+            step = args[2].intValue();
+        }
+                      
+        IDatatype dt = DatatypeMap.newIterate(start, end, step);
+        return dt;
     }
 
     @Override
@@ -2352,27 +2600,48 @@ public class ProxyImpl implements Proxy, ExprType {
     }
     
     public IDatatype get(IDatatype dt1, IDatatype dt2){
-        return gget(dt1, dt2, dt2);
+        return gget(dt1, null, dt2);
     }
     
-    public IDatatype gget(IDatatype dt1, IDatatype dt2){
-        return gget(dt1, dt2, dt2);
+    /*
+     * Java compiler
+     * dtmap = SPARQL Query solution Mappings
+     * dtvar = variable name
+     * return value of variable in first Mapping
+     */
+    public IDatatype gget(IDatatype dtmap, IDatatype dtvar){
+        if (! dtmap.isPointer() || dtmap.pointerType() != PointerObject.MAPPINGS_POINTER){
+            return null;
+        }
+        Mappings map = dtmap.getPointerObject().getMappings();
+        return (IDatatype) map.getValue(dtvar.stringValue());
     }
     
     /**
      * Generic get with variable name and index
+     * may be unbound, return specific UNDEF value because null would be considered an error  
+     * embedding let will let the variable unbound, see getConstantValue()
+     * it can be catched with bound(var) or coalesce(var)
      */
     public IDatatype gget(IDatatype dt, IDatatype var, IDatatype ind){
-        if (dt.isList()){
-            return DatatypeMap.get(dt, ind);
+        if (dt.isList()) {
+            return getResult(DatatypeMap.get(dt, ind));           
         }
         if (dt.isPointer()){
-            IDatatype res = (IDatatype) dt.getPointerObject().getValue(var.getLabel(), ind.intValue());          
-            // let ((?x, ?y) = select * where { ... optional { ?x rdf:value ?y }}
-            // ?y may be unbound, return specific UNDEF value 
-            return (res == null) ? UNDEF : res;
-        }      
-        return null;
+            Object res = dt.getPointerObject().getValue((var == null) ? null : var.getLabel(), ind.intValue());
+            if (res == null) {                
+                return UNDEF;
+            }                 
+            return  DatatypeMap.getValue(res);           
+        } 
+        return getResult(dt.get(ind.intValue()));
+    }
+    
+    IDatatype getResult(IDatatype dt){
+        if (dt == null){
+            return UNDEF;
+        }
+        return dt;
     }
             
     IDatatype nodeValue(Node n){

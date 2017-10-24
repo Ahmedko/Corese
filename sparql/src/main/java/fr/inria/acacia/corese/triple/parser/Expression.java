@@ -1,5 +1,6 @@
 package fr.inria.acacia.corese.triple.parser;
 
+import fr.inria.acacia.corese.api.Computer;
 import fr.inria.acacia.corese.api.IDatatype;
 import fr.inria.acacia.corese.triple.api.ASTVisitor;
 import fr.inria.acacia.corese.triple.api.ExpressionVisitor;
@@ -8,10 +9,21 @@ import java.util.List;
 
 import fr.inria.acacia.corese.triple.cst.Keyword;
 import fr.inria.corese.compiler.java.JavaCompiler;
+import fr.inria.corese.triple.function.term.Binding;
+import fr.inria.edelweiss.kgram.api.core.DatatypeValue;
+import fr.inria.edelweiss.kgram.api.core.Entity;
 import fr.inria.edelweiss.kgram.api.core.Expr;
 import fr.inria.edelweiss.kgram.api.core.ExprType;
 import fr.inria.edelweiss.kgram.api.core.Filter;
+import fr.inria.edelweiss.kgram.api.core.Pointerable;
 import fr.inria.edelweiss.kgram.api.core.Regex;
+import fr.inria.edelweiss.kgram.api.core.TripleStore;
+import fr.inria.edelweiss.kgram.api.query.Environment;
+import fr.inria.edelweiss.kgram.api.query.Evaluator;
+import fr.inria.edelweiss.kgram.api.query.Producer;
+import fr.inria.edelweiss.kgram.core.Mapping;
+import fr.inria.edelweiss.kgram.core.Mappings;
+import fr.inria.edelweiss.kgram.core.Query;
 
 /**
  * <p>Title: Corese</p>
@@ -26,7 +38,7 @@ import fr.inria.edelweiss.kgram.api.core.Regex;
  */
 
 public class Expression extends TopExp 
-implements Regex, Filter, Expr {
+implements Regex, Filter, Expr, Pointerable  {
 	public static final int STDFILTER = 0;
 	public static final int ENDFILTER = 1;
 	public static final int POSFILTER = 2;
@@ -40,6 +52,8 @@ implements Regex, Filter, Expr {
 	
 	String name, longName;
 	Expression exp;
+        private Expression expression;
+        private ASTQuery ast;
 
 	public Expression(){}
 	
@@ -79,7 +93,7 @@ implements Regex, Filter, Expr {
          */
         void local(ASTQuery ast){
             ExpressionVisitorVariable vis = new ExpressionVisitorVariable(ast);
-            visit(vis);
+            vis.start(this);
         }
         
         Expression prepare(ASTQuery ast){
@@ -108,6 +122,15 @@ implements Regex, Filter, Expr {
 	public String getName(){
 		return name;
 	}
+        
+        @Override
+        public int getNbVariable() {
+            return 0;
+        }
+        
+        public void setNbVariable(int n){
+            
+        }
 	
         @Override
 	public String getLongName(){
@@ -210,7 +233,7 @@ implements Regex, Filter, Expr {
 	public boolean isFunction(){
 		return false;
 	}
-        
+               
         @Override
         public boolean isFuncall(){
 		return false;
@@ -409,7 +432,7 @@ implements Regex, Filter, Expr {
         public Term getTerm(){
             return null;
         }
-	
+        	
         @Override
 	public Variable getVariable(){
 		return null;
@@ -476,8 +499,7 @@ implements Regex, Filter, Expr {
 
 	
         @Override
-	public Expr getExp() {
-		
+	public Expr getExp() {		
 		return this;
 	}
 
@@ -511,13 +533,7 @@ implements Regex, Filter, Expr {
 		
 		return 0;
 	}
-        
-        @Override
-        public int place(){
-            return -1;
-        }
-
-	
+               
         @Override
 	public String getLabel() {
 		
@@ -588,6 +604,81 @@ implements Regex, Filter, Expr {
 	public int type() {
 		return ExprType.UNDEF;
 	}
+        
+        @Override
+    public boolean match(int t) {
+        switch (t) {
+            case ExprType.JOKER:
+                return true;
+            case ExprType.EQ_SAME:
+                return match(ExprType.EQ, ExprType.SAMETERM);
+            case ExprType.BETWEEN:
+                return match(ExprType.MORE, ExprType.LESS);
+            case ExprType.MORE:
+                return match(ExprType.GT, ExprType.GE);
+            case ExprType.LESS:
+                return match(ExprType.LT, ExprType.LE);   
+            case ExprType.KIND:
+                return match(ExprType.ISURI) || match(ExprType.ISBLANK, ExprType.ISLITERAL);
+            case ExprType.BIPREDICATE:
+                return isBipredicate();
+            case ExprType.TINKERPOP:
+            case ExprType.TINKERPOP_RESTRICT:
+                return isTinkerpop(t);
+            default:
+                return oper() == t;
+        }
+    }
+        
+    boolean match(int t1, int t2) {
+            return match(t1) || match(t2);
+    }
+    
+    boolean isBipredicate(){
+        switch (oper()){
+            case ExprType.CONTAINS:
+            case ExprType.REGEX:
+            case ExprType.STARTS:
+            case ExprType.ENDS :
+                return true;
+        }
+        return false;
+    }
+
+    /**
+     * SPARQL filters available in Tinkerpop
+     */
+    public boolean isTinkerpop(int t){
+        switch (type()){
+            case ExprType.BOOLEAN: return true;
+        }
+        
+        switch (oper()){
+            case ExprType.EQ:
+            case ExprType.NEQ:
+            case ExprType.SAMETERM:
+                
+            case ExprType.LE:
+            case ExprType.LT:
+            case ExprType.GE:
+            case ExprType.GT: 
+                
+            case ExprType.CONTAINS:
+            case ExprType.STARTS:
+            case ExprType.ENDS:
+            case ExprType.REGEX:
+                
+            case ExprType.IN:
+               return true; 
+                
+            case ExprType.ISURI:
+            case ExprType.ISBLANK:
+            case ExprType.ISLITERAL:
+                   return t == ExprType.TINKERPOP;            
+        }
+        return false;
+    }
+        
 	
         @Override
 	public int retype() {
@@ -717,6 +808,11 @@ implements Regex, Filter, Expr {
     public Term getFunction(){
         return null;
     }
+          
+        @Override
+    public List<String> getMetadataValues(String name) {
+        return null;
+    }
     
         @Override
     public Expression getBody(){
@@ -727,6 +823,11 @@ implements Regex, Filter, Expr {
     public Expression getDefinition(){
         return null;
     } 
+        
+        @Override
+    public DatatypeValue[] getArguments(int n) {
+        return null;
+    }
         
      public Let getLet(){
          return null;
@@ -744,5 +845,87 @@ implements Regex, Filter, Expr {
         @Override
     public void setSubtype(int t) {
     }
+
+    /**
+     * @return the ancestor
+     */
+    public Expression getExpression() {
+        return expression;
+    }
+
+    /**
+     * @param ancestor the ancestor to set
+     */
+    public void setExpression(Expression ancestor) {
+        this.expression = ancestor;
+    }
+    
+    public boolean hasExpression(){
+        return expression != null;
+    }
+    
+    public ASTQuery getAST(){
+        return ast;
+    }
+    
+    public void setAST(ASTQuery ast){
+        this.ast = ast;
+    }
+    
+    public boolean hasAST(){
+        return ast != null;
+    }
+
+    @Override
+    public int pointerType() {
+        return Pointerable.EXPRESSION_POINTER;
+    }
+    
+    
+    public IDatatype eval(Computer eval, Binding b, Environment env, Producer p){
+        return null;
+    }
+    
+  
+    @Override
+    public Mappings getMappings() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public Mapping getMapping() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public Entity getEntity() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public Query getQuery() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public TripleStore getTripleStore() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public Object getValue(String var, int n) {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public int size() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public Iterable getLoop() {
+        throw new UnsupportedOperationException("Not supported yet."); //To change body of generated methods, choose Tools | Templates.
+    }
+    
      
 }

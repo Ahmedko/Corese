@@ -3,8 +3,6 @@ package fr.inria.acacia.corese.triple.parser;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.sql.ResultSet;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -38,7 +36,9 @@ public class Processor {
 	public static final String COUNT    = "count";
 	public static final String INLIST   = Term.LIST;
 	public static final String XT_LIST     = EXT+"list";
+	public static final String XT_TOLIST   = EXT+"toList";
 	public static final String XT_IOTA     = EXT+"iota";
+	public static final String XT_ITERATE = EXT+"iterate";
 	public static final String XT_REVERSE  = EXT+"reverse";
 	public static final String XT_APPEND   = EXT+"append";
 	public static final String XT_MEMBER   = EXT+"member";
@@ -91,18 +91,22 @@ public class Processor {
 	private static final String MAPFIND   = "mapfind";
 	private static final String MAPFINDLIST   = "mapfindlist";
 	static final String APPLY   = "apply";
+	static final String REDUCE  = "reduce";
         
         private static final String XT_SELF     = EXT + "self";
         private static final String XT_FIRST    = EXT + "first";
         private static final String XT_REST     = EXT + "rest";
         private static final String XT_GET      = EXT + "get";
         private static final String XT_GEN_GET  = EXT + "gget";
-        private static final String FUN_XT_GET  = EXT_PREF + "gget";
+        static final String FUN_XT_GGET         = EXT_PREF + "gget";
+        static final String FUN_XT_GET          = EXT_PREF + "get";
         private static final String XT_SET      = EXT + "set";
         private static final String XT_CONS     = EXT + "cons";        
         private static final String XT_ADD      = EXT + "add";
+        private static final String XT_SWAP     = EXT + "swap";
         private static final String XT_MAPPING  = EXT + "mapping";
         private static final String XT_SIZE     = EXT + "size";      
+        private static final String XT_FOCUS    = EXT + "focus";
         private static final String XT_GRAPH    = EXT + "graph";
         private static final String XT_SUBJECT  = EXT + "subject";
         private static final String XT_PROPERTY = EXT + "property";
@@ -116,12 +120,19 @@ public class Processor {
         private static final String XT_AST      = EXT + "ast";
         private static final String XT_CONTEXT  = EXT + "context";
         private static final String XT_METADATA = EXT + "metadata";
+        private static final String XT_ANNOTATION= EXT + "annotation";        
         private static final String XT_PREFIX   = EXT + "prefix";        
+        private static final String XT_NSMANAGER= EXT + "nsmanager";        
         private static final String XT_FROM     = EXT + "from";        
         private static final String XT_NAMED    = EXT + "named";        
         private static final String XT_TRIPLE   = EXT + "triple";
         static public final String XT_MAIN      = EXT + "main";
         static public final String FUN_XT_MAIN  = EXT_PREF + "main";
+        private static final String XT_ENTAILMENT = EXT + "entailment";
+        private static final String XT_DATATYPE = EXT + "datatype";
+        private static final String XT_KIND     = EXT + "kind";
+        private static final String XT_METHOD   = "method";
+        private static final String XT_METHOD_TYPE= EXT + "method";
        
 
 	private static final String PLENGTH = "pathLength";
@@ -288,6 +299,7 @@ public class Processor {
 	static final String ENV  	 = KGRAM + "env";
 	public static final String PATHNODE = KGRAM + "pathNode";
 	static final String SLICE       = KGRAM + "slice";
+	static final String DB          = KGRAM + "db";
 
 	static final String EXIST 	= Term.EXIST;
 	static final String STRLEN 	= "strlen";
@@ -348,7 +360,12 @@ public class Processor {
         static final String RQ_GE 	= SPARQL + "ge";
         static final String RQ_GT 	= SPARQL + "gt";
                       
-        static final String XT_DISPLAY 	= EXT + "display";
+        static final String XT_LOAD 	= EXT + "load";
+        static final String XT_CONTENT 	= EXT + "content";
+        public static final String XT_DISPLAY 	= EXT + "display";
+        public static final String XT_PRINT 	= EXT + "print";
+        static final String XT_GDISPLAY = EXT + "gdisplay";
+        static final String XT_GPRINT 	= EXT + "gprint";
         static final String XT_TUNE 	= EXT + "tune";
         static final String XT_UNION 	= EXT + "union";
         static final String XT_MINUS 	= EXT + "minus";
@@ -457,8 +474,8 @@ public class Processor {
 	}
                             
        void prepare(Term term, ASTQuery ast) {
-        //name = term.getLabel();
-        if (term.isFunction()) {
+        if (term.isFunction() && ! term.isFunctionSignature()) {
+            // skip signature of function xsd:integer(?n) { xsd:integer(?x) }
             switch (term.oper()) {                
                 case ExprType.HASH:
                     compileHash(term);
@@ -466,18 +483,14 @@ public class Processor {
                 case ExprType.URI:
                     compileURI(term, ast);
                     break;
-                case ExprType.CAST:
-                    compileCast(term);
-                    break;               
-                    
+                   
                 case ExprType.REGEX:
                 case ExprType.EXIST:                  
                 case ExprType.STRREPLACE:                   
                 case ExprType.XPATH:                   
                 case ExprType.SQL:                   
                 case ExprType.EXTERNAL:                    
-                case ExprType.CUSTOM:
-                    
+                case ExprType.CUSTOM:                    
                     prepareOwn(term, ast);
             }
         }
@@ -560,6 +573,10 @@ public class Processor {
 		defoper("-", 	ExprType.MINUS);
 		defoper("*", 	ExprType.MULT);
 		defoper("/", 	ExprType.DIV);
+		defoper("&&", 	ExprType.AND);
+		defoper("||", 	ExprType.OR);
+		defoper("!", 	ExprType.NOT);
+		defoper(Term.STAR, ExprType.STAR);
 				
 		defoper(BOUND, ExprType.BOUND);
 		defoper(COUNT, 	ExprType.COUNT);
@@ -597,7 +614,9 @@ public class Processor {
 		defsysoper(LET,         ExprType.LET);
 		defoper(SET,            ExprType.SET);
 		defoper(XT_LIST,        ExprType.LIST);
+		defoper(XT_TOLIST,      ExprType.XT_TOLIST);
 		defoper(XT_IOTA,        ExprType.IOTA);
+		defoper(XT_ITERATE,     ExprType.XT_ITERATE);
 		defoper(XT_REVERSE,     ExprType.XT_REVERSE);
 		defoper(XT_APPEND,      ExprType.XT_APPEND);
 		defoper(XT_MERGE,       ExprType.XT_MERGE);
@@ -606,6 +625,7 @@ public class Processor {
                 
 		defoper(FUNCALL,           ExprType.FUNCALL);                
 		defsysoper(EVAL,           ExprType.EVAL);                
+		defsysoper(REDUCE,         ExprType.REDUCE);
 		defsysoper(APPLY,          ExprType.APPLY);
 		defsysoper(MAP,            ExprType.MAP);
 		defsysoper(FOR,            ExprType.FOR);
@@ -627,11 +647,12 @@ public class Processor {
 		defoper(XT_REST,        ExprType.XT_REST);
 		defoper(XT_SELF,        ExprType.SELF);
 		defoper(XT_GET,         ExprType.XT_GET);
+		defoper(XT_SWAP,        ExprType.XT_SWAP);
 		defoper(XT_GEN_GET,     ExprType.XT_GEN_GET);
 		defoper(XT_SET,         ExprType.XT_SET);
  		defoper(XT_REJECT,      ExprType.XT_REJECT);
                
-		//defoper(XT_COUNT,        ExprType.XT_COUNT);
+		defoper(XT_FOCUS,        ExprType.XT_FOCUS);
 		defoper(XT_SIZE,         ExprType.XT_COUNT);		
 		defoper(XT_GRAPH,        ExprType.XT_GRAPH);
 		defoper(XT_SUBJECT,      ExprType.XT_SUBJECT);
@@ -646,6 +667,14 @@ public class Processor {
 		defoper(XT_AST,          ExprType.XT_AST);
 		defoper(XT_CONTEXT,      ExprType.XT_CONTEXT);
 		defoper(XT_METADATA,     ExprType.XT_METADATA);
+		defoper(XT_ANNOTATION,   ExprType.XT_METADATA);
+		defoper(XT_NSMANAGER,    ExprType.STL_PREFIX);
+		defoper(XT_ENTAILMENT,   ExprType.XT_ENTAILMENT);
+		defoper(XT_DATATYPE,     ExprType.XT_DATATYPE);
+		defoper(XT_KIND,         ExprType.XT_KIND);
+		defoper(XT_METHOD,       ExprType.XT_METHOD);
+		defoper(XT_METHOD_TYPE,  ExprType.XT_METHOD_TYPE);
+                
 		defoper(XT_FROM,         ExprType.XT_FROM);
 		defoper(XT_NAMED,        ExprType.XT_NAMED);
                 
@@ -734,6 +763,8 @@ public class Processor {
 		defoper(STL_XSDLITERAL,         ExprType.XSDLITERAL);
 		defoper(STL_NUMBER,             ExprType.STL_NUMBER);
 		defoper(STL_FORMAT,             ExprType.STL_FORMAT);
+		defoper(EXT+"format",           ExprType.STL_FORMAT);
+                
 		defoper(STL_INDEX,              ExprType.STL_INDEX);
 		defoper(STL_FUTURE,             ExprType.STL_FUTURE);
 		defoper(STL_LOAD,               ExprType.STL_LOAD);
@@ -778,6 +809,7 @@ public class Processor {
 		defoper(PSIMILAR, ExprType.PSIM);
 		defoper(ANCESTOR, ExprType.ANCESTOR);
 		defoper(DEPTH,   ExprType.DEPTH);
+		defoper(EXT+"depth",   ExprType.DEPTH);
 		defoper(GRAPH,   ExprType.KG_GRAPH);
 		defoper(NODE,    ExprType.NODE);
 		defoper(GET_OBJECT,     ExprType.GET_OBJECT);
@@ -807,7 +839,12 @@ public class Processor {
                 defoper(RQ_GE,     ExprType.GE); 
                 
                 
+                defoper(XT_LOAD,   ExprType.LOAD);  
+                defoper(XT_CONTENT,ExprType.XT_CONTENT);  
                 defoper(XT_DISPLAY,ExprType.XT_DISPLAY);  
+                defoper(XT_PRINT,  ExprType.XT_PRINT);  
+                defoper(XT_GDISPLAY,ExprType.XT_DISPLAY);  
+                defoper(XT_GPRINT, ExprType.XT_PRINT);  
                 defoper(XT_TUNE,   ExprType.XT_TUNE); 
                 
                 defoper(XT_UNION,  ExprType.XT_UNION);  
@@ -821,6 +858,7 @@ public class Processor {
 		defoper(PROCESS, ExprType.PROCESS);
 		defoper(ENV, 	 ExprType.ENV);
 		defoper(SLICE, 	 ExprType.SLICE);
+		defoper(DB, 	 ExprType.DB);
 
 		defoper(SAMETERM, ExprType.SAMETERM);
 		defoper(STRLEN, ExprType.STRLEN);
@@ -871,7 +909,7 @@ public class Processor {
             define(key, value);
         }
         
-         static void defextoper(String key, int value){
+        static void defextoper(String key, int value){
             defextoper(key, value, 2);
         }
          
@@ -900,8 +938,6 @@ public class Processor {
                 name = SPARQL + key;
             }
             Function fun = ast.defExtension(name, key, arity);
-            fun.setPublic(true);
-            System.out.println(fun);
         }
         
         public static ASTQuery getAST(){
@@ -927,27 +963,24 @@ public class Processor {
                 return getOper(term.getLabel());
         }
                 
-        public static int getOper(String name){
-		Integer n = table.get(name.toLowerCase());
-		if (n == null){
-			if (name.startsWith(RDFS.XSDPrefix) || name.startsWith(RDFS.XSD) || 
-				name.startsWith(RDFS.RDFPrefix) || name.startsWith(RDFS.RDF)){
-				n = ExprType.CAST;
-			}
-                        else if (name.startsWith(CUSTOM)){
-				n = ExprType.CUSTOM;
-			}
-			else if (name.startsWith(KeywordPP.CORESE_PREFIX)){
-				n = ExprType.EXTERNAL;
-			}
-			else {
-				n = ExprType.UNDEF;
-			}
-		}
-		// draft: record occurrences during test case
-		//toccur.put(n, name);
-		return n;
-	}
+       public static int getOper(String name) {
+        Integer n = table.get(name.toLowerCase());
+        if (n == null) {
+            if (name.startsWith(RDFS.XSDPrefix) || name.startsWith(RDFS.XSD)
+                    || name.startsWith(RDFS.RDFPrefix) || name.startsWith(RDFS.RDF)) {
+                n = ExprType.CAST;
+            } else if (name.startsWith(CUSTOM)) {
+                n = ExprType.CUSTOM;
+            } else if (name.startsWith(KeywordPP.CORESE_PREFIX)) {
+                n = ExprType.EXTERNAL;
+            } else {
+                n = ExprType.UNDEF;
+            }
+        }
+        // draft: record occurrences during test case
+        //toccur.put(n, name);
+        return n;
+    }
         	
 	public static void finish(){
 		for (Integer n : table.values()){
@@ -957,27 +990,7 @@ public class Processor {
 		}
 	}
 	
-	
-	/**
-	 * xsd:integer(?x)
-	 * ->
-	 * cast(?x, xsd:integer, CoreseInteger)
-	 */
-	void compileCast(Term  term){
-		// name = xsd:integer | ... | str
-		String name = term.getName();
-		Constant dt = Constant.createResource(name);
-		dt.getDatatypeValue();
-		// type = CoreseInteger
-		Constant type = Constant.create(Constant.getJavaType(name), RDFS.xsdstring);
-		type.getDatatypeValue();
-		List<Expr> lExp = new ArrayList<Expr>();
-		lExp.add(term.getArg(0));
-		lExp.add(dt);
-		lExp.add(type);
-                term.setExpList(lExp);
-	}
-        
+		       
         void preprocess(Term term, ASTQuery ast){
             switch (term.oper()){
                 
@@ -988,7 +1001,11 @@ public class Processor {
                 case ExprType.MAPFINDLIST:
                 case ExprType.MAPEVERY:
                 case ExprType.MAPANY:
+                    
                 case ExprType.APPLY:
+                case ExprType.REDUCE:
+                case ExprType.FUNCALL:
+                    
                     processMap(term, ast);
                     break;
                     
@@ -1022,87 +1039,31 @@ public class Processor {
          * @param ast 
          */
        void processMatch(Let term, ASTQuery ast) {
-            Expression match = term.getArg(0).getArg(0);
-            Expression list  = term.getDefinition();
-
-            if (match.isFunction() && match.getLabel().equals(Processor.MATCH)) {
-                ExpressionList l = new ExpressionList();
-                
-                Variable var;
-                if (list.isVariable()){
-                    var = list.getVariable();                    
-                }
-                else {
-                    // eval list exp once, store it in variable
-                    var = Variable.create("?_var_let_");
-                    l.add(ast.defLet(var, list));
-                }
-                
-                int j = 0;
-                for (Expression arg : match.getArgs()) {
-                    Term fun = ast.createFunction(ast.createQName(FUN_XT_GET), var);
-                    fun.add(Constant.createString(arg.getLabel()));
-                    fun.add(Constant.create(j++));
-                    Term t   = ast.defLet(arg.getVariable(), fun);
-                    l.add(t);
-                }
-                
-                Term let = ast.defineLet(l, term.getBody(), 0);
-                term.setArgs(let.getArgs());          
-            }
+            ast.processMatch(term);
         }
-        
-        
-
+               
         /**
-         * map(xt:fun, ?list)
+         * map(rq:fun, ?list)
          * -> 
-         * map(xt:fun(?x), ?list)
-         * @param ast 
+         * map(lambda(?x){ rq:fun(?x) }, ?list)
          */
-      void processMap(Term term, ASTQuery ast) {
-        if (term.getArgs().size() >= 2) {
-            Expression fst = term.getArg(0);
-
-            if (fst.isConstant()) {
-                Term fun = ast.createFunction(fst.getConstant());
-                int max = (term.oper() == ExprType.APPLY) ? 2 : term.getArgs().size() - 1;
-                // create 2 variables for apply(kg:plus, ?list) for ?a + ?b
-                for (int i = 0; i < max; i++) {
-                    Variable var = ASTQuery.createVariable("?_map_var" + i);
-                    fun.add(var);
-                }
-                term.setArg(0, fun);
-            }
-        }
+    void processMap(Term term, ASTQuery ast) {
+        ast.processMap(term);
     }
-              
+                          
       // aggregate(?x, xt:mediane)
-      void processAggregate(Term term, ASTQuery ast) {
-        if (term.getArgs().size() == 2) {
-            Expression rst = term.getArg(1);
-            if (rst.isConstant()) {
-                Term fun = ast.createFunction(rst.getConstant());
-                Variable var = ASTQuery.createVariable("?_agg_var");
-                fun.add(var);
-                term.setArg(1, fun);
-            }
-        }
+    void processAggregate(Term term, ASTQuery ast) {
+        //ast.processAggregate(term);
     } 
-
-                     
-        Term cstToFun(ASTQuery ast, Constant cst) {
-            Variable var = ASTQuery.createVariable("_map_");
-            Term fun = ast.createFunction(cst, var);
-            return fun;
-        }
-	
+                     	
 	/**
 	 * sha256(?x) ->
 	 * hash("SHA-256", ?x)
 	 */
 	void compileHash(Term term){
 		String name = term.getName();
+                // use case:  rq:sha256
+                name = NSManager.nstrip(name);
 		if (name.startsWith("sha") || name.startsWith("SHA")){
 			name = "SHA-" + name.substring(3);
 		}
@@ -1115,10 +1076,7 @@ public class Processor {
 			term.setModality(ast.getNSM().getBase());
 		}
 	}
-        
-        void compileExist(Term term){
-        }
-			
+        			
 	/**
 	 * term = regex(?x,  ".*toto",  ["i"])
 	 * match.reset(string);
@@ -1175,13 +1133,7 @@ public class Processor {
                     compilePattern(term.getArg(1).getLabel(), sflag, false);
 		}
 	}
-	
-	// TODO: test if constant
-//	void compileReplace(String str){
-//		pat = Pattern.compile(str);
-//		match = pat.matcher("");
-//	}
-	
+		
 	// replace('%abc@def#', '[^a-z0-9]', '-')
 	public String replace(String str, String pat, String rep, String flag){ 
             if (! isCompiled){

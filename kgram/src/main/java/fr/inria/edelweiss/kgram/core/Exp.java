@@ -1,5 +1,6 @@
 package fr.inria.edelweiss.kgram.core;
 
+import fr.inria.edelweiss.kgram.api.core.DatatypeValue;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -23,6 +24,27 @@ import java.util.HashMap;
  */
 public class Exp extends PointerObject
         implements ExpType, ExpPattern, Iterable<Exp> {
+
+    /**
+     * @return the externQuery
+     */
+    public Query getExternQuery() {
+        return externQuery;
+    }
+
+    /**
+     * @param externQuery the externQuery to set
+     */
+    public void setExternQuery(Query externQuery) {
+        this.externQuery = externQuery;
+    }
+    
+    public static final int ANY        = -1;
+    public static final int SUBJECT    = 0;
+    public static final int OBJECT     = 1;
+    public static final int PREDICATE  = 2;
+    public static final int GRAPH_NAME = 3;
+    
     static final String NL = System.getProperty("line.separator");
     static final String SP = " ";
     static Exp empty = new Exp(EMPTY);
@@ -41,6 +63,7 @@ public class Exp extends PointerObject
             isBGP = false,
             lock = false,
             isSilent = false;
+    boolean isDebug = false;
     private boolean isPostpone = false;
     private boolean BGPAble = false;
     private boolean isFunctional = false;
@@ -59,12 +82,14 @@ public class Exp extends PointerObject
     Stack stack;
     // for EXTERN 
     Object object;
+    Producer producer;
     Regex regex;
     Exp next;
     private Exp postpone;
     private Exp path;
     private Exp bind;
     private Exp values;
+    private Query externQuery;
     Mappings map, templateMap;
     HashMap<Node, Mappings> cache;
     int min = -1, max = -1;
@@ -236,18 +261,22 @@ public class Exp extends PointerObject
         lFilter = new ArrayList<Filter>();
     }
 
-    Exp(int t, Exp e1, Exp e2) {
-        this(t);
-        args.add(e1);
-        args.add(e2);
-    }
-
-    Exp(int t, Exp e) {
-        this(t);
-        args.add(e);
-    }
+//    Exp(int t, Exp e1, Exp e2) {
+//        this(t);
+//        args.add(e1);
+//        args.add(e2);
+//    }
+//
+//    Exp(int t, Exp e) {
+//        this(t);
+//        args.add(e);
+//    }
 
     public static Exp create(int t) {
+        switch (t){
+            case PATH:
+            case EDGE: return new ExpEdge(t);
+        }
         return new Exp(t);
     }
 
@@ -319,6 +348,7 @@ public class Exp extends PointerObject
         args.set(n, e);
     }
 
+    @Override
     public Query getQuery() {
         return null;
     }
@@ -782,7 +812,11 @@ public class Exp extends PointerObject
     public List<Filter> getFilters() {
         return lFilter;
     }
-
+    
+    public List<Filter> getFilters(int n, int t) {
+        return new ArrayList<Filter>(0);
+    }
+          
     public boolean isHaving() {
         return getHavingFilter() != null;
     }
@@ -874,8 +908,12 @@ public class Exp extends PointerObject
         return object;
     }
 
-    public void setProducer(Object o) {
-        object = o;
+    public void setProducer(Producer p) {
+        producer = p;
+    }
+    
+    public Producer getProducer() {
+        return producer;
     }
 
     public Exp getRestore() {
@@ -884,11 +922,7 @@ public class Exp extends PointerObject
 
     public void setRestore(Object o) {
         object = o;
-    }
-
-    public Producer getProducer() {
-        return (Producer) object;
-    }
+    }  
 
     public List<Object> getObjectValues() {
         if (object instanceof List) {
@@ -1933,5 +1967,13 @@ public class Exp extends PointerObject
     // optional postponed filters
     public Exp getPostpone(){
         return postpone;
+    }
+    
+    public boolean isDebug() {
+        return isDebug;
+    }
+
+    public void setDebug(boolean b) {
+        isDebug = b;
     }
 }

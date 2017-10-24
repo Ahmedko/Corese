@@ -41,12 +41,13 @@ public interface Expr {
         DatatypeValue getDatatypeValue();
 	
 	int type();
-        
+                
         int subtype();
         
         void setSubtype(int n);
 
 	int oper();
+        boolean match(int oper);
         
         void setOper(int n);
 
@@ -59,6 +60,7 @@ public interface Expr {
 	boolean isRecExist();
 
         boolean isVariable();
+        boolean isConstant();
         
         boolean isFuncall();
 	
@@ -68,8 +70,6 @@ public interface Expr {
 
 	int arity();
         
-        int place();
-
 	int getIndex();
 
 	void setIndex(int index);
@@ -85,5 +85,9 @@ public interface Expr {
         Expr getVariable();
         
         Expr getDefinition();
+        int getNbVariable();
+        DatatypeValue[] getArguments(int n);
+        
+        List<String> getMetadataValues(String name);
         	
 }

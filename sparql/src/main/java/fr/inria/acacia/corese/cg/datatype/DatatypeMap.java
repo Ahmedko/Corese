@@ -1,6 +1,5 @@
 package fr.inria.acacia.corese.cg.datatype;
 
-import java.lang.reflect.Method;
 import java.util.Hashtable;
 
 import org.apache.logging.log4j.Logger;
@@ -9,7 +8,9 @@ import org.apache.logging.log4j.LogManager;
 import fr.inria.acacia.corese.api.IDatatype;
 import fr.inria.acacia.corese.exceptions.CoreseDatatypeException;
 import fr.inria.edelweiss.kgram.api.core.ExpType;
+import fr.inria.edelweiss.kgram.api.core.Node;
 import fr.inria.edelweiss.kgram.api.core.Pointerable;
+import java.io.UnsupportedEncodingException;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -50,6 +51,12 @@ public class DatatypeMap implements Cst, RDF {
     public static final IDatatype MINUSONE = newInstance(-1);
     public static final IDatatype ERROR   = CoreseUndefLiteral.ERROR;
     public static final IDatatype UNBOUND = CoreseUndefLiteral.UNBOUND;
+    
+    public static final IDatatype URI_DATATYPE      = newResource(IDatatype.URI_DATATYPE);
+    public static final IDatatype BNODE_DATATYPE    = newResource(IDatatype.BNODE_DATATYPE);
+    public static final IDatatype LITERAL_DATATYPE  = newResource(IDatatype.LITERAL_DATATYPE);
+    static final String alpha = "abcdefghijklmnoprstuvwxyz";
+    static final String ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     
     private static Hashtable<String, Mapping> ht;
     private static HashMap<String, Integer> dtCode;
@@ -302,6 +309,17 @@ public class DatatypeMap implements Cst, RDF {
     public static boolean isUndefined(IDatatype dt) {
         return dt.getCode() == IDatatype.UNDEF;
     }
+    
+    public static boolean isWellFormed(IDatatype dt) {
+        if (dt.isLiteral() && dt.isUndefined()) {
+            if (dt.getDatatypeURI().startsWith(XSD)) {
+                return false;
+            } else if (dt.getDatatypeURI().startsWith(RDF) && !dt.getDatatypeURI().equals(RDF_HTML)) {
+                return false;
+            }
+        }
+        return true;
+    }
 
     IDatatype create(String label, String datatype, String lang) {
         switch (getType(datatype)) {
@@ -313,21 +331,21 @@ public class DatatypeMap implements Cst, RDF {
     }
 
     public static IDatatype cast(Object obj) {
-        if (obj instanceof Integer) {
-            return newInstance((Integer) obj);
-        } 
+        if (obj instanceof Number) {
+            if (obj instanceof Integer) {
+                return newInstance((Integer) obj);
+            } else if (obj instanceof Float) {
+                return newInstance((Float) obj);
+            } else if (obj instanceof Double) {
+                return newInstance((Double) obj);
+            }
+        }
         else if (obj instanceof Boolean) {
             return newInstance((Boolean) obj);
-        } 
-        else if (obj instanceof String) {
+        } else if (obj instanceof String) {
             return newInstance((String) obj);
         }
-        else if (obj instanceof Float) {
-            return newInstance((Float) obj);
-        }
-        else if (obj instanceof Double) {
-            return newInstance((Double) obj);
-        }
+
         return null;
     }
     
@@ -518,18 +536,66 @@ public class DatatypeMap implements Cst, RDF {
         return createLiteral(name, XMLLITERAL, null);
     }
     
+    
+     public static IDatatype getValue(Object value){
+        if (value instanceof IDatatype){
+            return (IDatatype) value;
+        }
+        if (value instanceof Node){
+            return (IDatatype) ((Node) value).getDatatypeValue();
+        }
+        if (value instanceof List){
+            return getValue((List) value);
+        }
+        IDatatype dt = DatatypeMap.castObject(value);
+        return dt;
+    }
+     
+     // not for recursively nested same list
+    public static IDatatype getValue(List<Object> list){
+        ArrayList<IDatatype> l = new ArrayList<>();
+        IDatatype res = createList(l);
+        for (Object obj : list){
+            if (obj == list){
+                l.add(res);
+            }
+            else {
+                IDatatype dt = getValue(obj);
+                if (dt != null){
+                    l.add(dt);
+                }
+            }
+        }
+        return res;
+    }
+    
     public static IDatatype createObject(Object obj) {
         if (obj == null){
             return null;
         }
         return createObject(Integer.toString(obj.hashCode()), obj);
     }
+    
+    public static IDatatype castObject(Object obj) {
+        if (obj == null){
+            return null;
+        }
+        IDatatype dt = cast(obj);
+        if (dt != null) {
+            return dt;
+        }
+        return createObject(obj);
+    }
+    
 
     public static IDatatype createObject(String name, Object obj) {      
         if (obj == null){
             return null;
+        } 
+        if (obj instanceof Node){
+            return (IDatatype) ((Node)obj).getDatatypeValue();
         }
-        if (obj instanceof Pointerable){
+        if (obj instanceof Pointerable){           
             return new CoresePointer(name, (Pointerable) obj);
         }
         IDatatype dt = createLiteral(name, XMLLITERAL, null);
@@ -555,6 +621,14 @@ public class DatatypeMap implements Cst, RDF {
     
     public static IDatatype newList(IDatatype... ldt) {
         return new CoreseList(ldt);
+    }
+    
+    public static IDatatype newIterate(int start, int end) {
+        return newIterate(start, end, 1);
+    }
+    
+    public static IDatatype newIterate(int start, int end, int step) {
+        return new CoreseIterate(start, end, step);      
     }
      
     public static IDatatype newInstance(IDatatype... ldt) {
@@ -777,6 +851,52 @@ public class DatatypeMap implements Cst, RDF {
     
     /******************************/
     
+     public static IDatatype encode_for_uri(IDatatype dt) {
+        String str = encodeForUri(dt.getLabel());
+        return newLiteral(str);
+     }
+
+    static String encodeForUri(String str) {
+
+        StringBuilder sb = new StringBuilder(2 * str.length());
+
+        for (int i = 0; i < str.length(); i++) {
+            
+            char c = str.charAt(i);
+
+            if (stdChar(c)) {
+                sb.append(c);
+            } else {
+                try {
+                    byte[] bytes = Character.toString(c).getBytes("UTF-8");
+
+                    for (byte b : bytes) {
+                        sb.append("%");
+
+                        char cc = (char) (b & 0xFF);
+
+                        String hexa = Integer.toHexString(cc).toUpperCase();
+
+                        if (hexa.length() == 1) {
+                            sb.append("0");
+                        }
+
+                        sb.append(hexa);
+                    }
+
+                } catch (UnsupportedEncodingException e) {
+                }
+            }
+        }
+
+        return sb.toString();
+    }
+
+    static boolean stdChar(char c) {
+        return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' 
+                || c == '-' || c == '.' || c == '_' || c == '~';
+    }
+    
     // DRAFT
     public static IDatatype result(IDatatype dt){
         switch (dt.getCode()){
@@ -844,6 +964,27 @@ public class DatatypeMap implements Cst, RDF {
           return list;
       }
      
+     // modify
+     public static IDatatype add(IDatatype elem, IDatatype list, IDatatype ind){
+          if (! list.isList()){
+              return null;
+          }  
+          list.getValues().add(ind.intValue(), elem);
+          return list;
+      }
+     
+     // modify
+     public static IDatatype swap(IDatatype list, IDatatype i1, IDatatype i2){
+          if (! list.isList()){
+              return null;
+          }  
+          List<IDatatype> l = list.getValues();
+          IDatatype dt = l.get(i1.intValue());
+          l.set(i1.intValue(), l.get(i2.intValue()));
+          l.set(i2.intValue(), dt);          
+          return list;
+      } 
+     
      // copy
      public static IDatatype cons(IDatatype elem, IDatatype list){
           if (! list.isList()){
@@ -887,7 +1028,7 @@ public class DatatypeMap implements Cst, RDF {
           return newInstance(res);
       }
        
-       // dt is a list of list
+       // dt is a list, possibly list of lists
        // merge lists and remove duplicates
        public static IDatatype merge(IDatatype list){
           if (! list.isList()){
@@ -917,11 +1058,10 @@ public class DatatypeMap implements Cst, RDF {
           if (! list.isList()){
               return null;
           }
-          List<IDatatype> arr = list.getValues();
-          if (n.intValue() >= arr.size()){
+          if (n.intValue() >= list.size()){
               return null;
           }
-          return arr.get(n.intValue());
+          return list.get(n.intValue());
       }
       
      public static IDatatype set(IDatatype list, IDatatype n, IDatatype val) {
@@ -973,4 +1113,75 @@ public class DatatypeMap implements Cst, RDF {
          }
          return list.getValues().contains(elem) ? TRUE : FALSE;
      }
+          
+     public static IDatatype iota(IDatatype... args){
+        if (args.length == 0) return null;
+        IDatatype dt = args[0];
+        if (dt.isNumber()){
+            return iotaNumber(args);
+        }
+        return iotaString(args);
+    }
+    
+    static IDatatype  iotaNumber(IDatatype[] args){
+        int start = 1;
+        int end = 1;
+        
+        if (args.length > 1){
+            start = args[0].intValue();
+            end =   args[1].intValue();
+        }
+        else {
+            end =    args[0].intValue();
+        }
+        if (end < start){
+            return DatatypeMap.createList();
+        }
+        
+        int step = 1;
+        if (args.length == 3){
+            step = args[2].intValue();
+        }
+        int length = (end - start + step) / step;
+        ArrayList<IDatatype> ldt = new ArrayList<IDatatype>(length);
+        
+        for (int i=0; i<length; i++){
+            ldt.add(DatatypeMap.newInstance(start));
+            start += step;
+        }
+        IDatatype dt = DatatypeMap.createList(ldt);
+        return dt;
+    }
+    
+    static IDatatype iotaString(IDatatype[] args){
+        String fst =  args[0].stringValue();
+        String snd = args[1].stringValue();
+        int step = 1;
+        if (args.length == 3){
+            step =  args[2].intValue();
+        }               
+        String str = alpha;
+        int start = str.indexOf(fst);
+        int end   = str.indexOf(snd);
+        if (start == -1){
+            str = ALPHA;
+            start = str.indexOf(fst);
+            end   = str.indexOf(snd);
+        }
+        if (start == -1 || end == -1){
+            return null;
+        }
+       
+        
+        int length = (end - start + step) / step;
+        ArrayList<IDatatype> ldt = new ArrayList<IDatatype>(length);
+        
+        for (int i=0; i<length; i++){
+            ldt.add(DatatypeMap.newInstance(str.substring(start, start+1)));
+            start += step;
+        }
+        IDatatype dt = DatatypeMap.createList(ldt);
+        return dt;
+    }
+     
 }
