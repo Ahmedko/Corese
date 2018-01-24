@@ -16,7 +16,6 @@ env:
     - NAME="Corese"
     - SOFTWARE_DESCRIBE="Corese"
     - VERSION="3.6.0"
-#    - SPARQLSCORE_DATABASE="172.17.0.6" #local
 
 services:
   - docker
